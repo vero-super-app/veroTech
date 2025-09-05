@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:vero360_app/Pages/homepage.dart';
+import 'package:vero360_app/services/auth_service.dart';
 import 'register_screen.dart';
 
 class AppColors {
@@ -28,22 +31,51 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  void _submit() {
+  // 🔹 Handle login
+  void _submit() async {
     if (_formKey.currentState?.validate() ?? false) {
       FocusScope.of(context).unfocus();
+
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Signing in...')),
       );
-      // TODO: hook up your real auth flow here
+
+      try {
+        final result = await AuthService().login(
+          _email.text.trim(),
+          _password.text.trim(),
+        );
+
+        if (result != null && result.containsKey("token")) {
+          // Save email (already saved in AuthService, but redundant for safety)
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString("email", _email.text.trim());
+
+          if (!mounted) return;
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(
+              builder: (_) => Vero360Homepage(email: _email.text.trim()),
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Invalid credentials ❌')),
+          );
+        }
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // Background with soft gradient + decorative blobs for visual interest
       body: Stack(
         children: [
+          // Background gradient
           Container(
             decoration: const BoxDecoration(
               gradient: LinearGradient(
@@ -53,18 +85,7 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
             ),
           ),
-          // Top-right blob
-          Positioned(
-            right: -40,
-            top: -30,
-            child: _Blob(size: 200, color: const Color(0x33FF8A00)),
-          ),
-          // Left blob
-          Positioned(
-            left: -60,
-            top: 180,
-            child: _Blob(size: 160, color: const Color(0x2264D2FF)),
-          ),
+
           // Content
           SafeArea(
             child: Center(
@@ -75,41 +96,15 @@ class _LoginScreenState extends State<LoginScreen> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      // Avatar with gradient ring (Hero for a smooth transition)
-                      Container(
-                        padding: const EdgeInsets.all(3),
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: [AppColors.brandOrange, Color(0xFFFFB85C)],
-                          ),
-                          shape: BoxShape.circle,
-                          boxShadow: [
-                            BoxShadow(
-                              color: AppColors.brandOrange.withOpacity(0.25),
-                              blurRadius: 22,
-                              offset: const Offset(0, 10),
-                            ),
-                          ],
-                        ),
-                        child: CircleAvatar(
-                          radius: 44,
-                          backgroundColor: Colors.white,
-                          child: Hero(
-                            tag: 'brand-mark',
-                            child: ClipOval(
-                              child: Image.asset(
-                                'assets/logo_mark.jpg', // uses your JPG
-                                width: 72,
-                                height: 72,
-                                fit: BoxFit.cover,
-                                errorBuilder: (_, __, ___) => const Icon(
-                                  Icons.eco,
-                                  size: 42,
-                                  color: AppColors.brandOrange,
-                                ),
-                              ),
-                            ),
-                          ),
+                      // Logo
+                      CircleAvatar(
+                        radius: 44,
+                        backgroundColor: Colors.white,
+                        child: Image.asset(
+                          'assets/logo_mark.jpg',
+                          width: 72,
+                          height: 72,
+                          fit: BoxFit.cover,
                         ),
                       ),
                       const SizedBox(height: 18),
@@ -135,7 +130,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                       const SizedBox(height: 22),
 
-                      // Glassy card
+                      // Form
                       Container(
                         decoration: BoxDecoration(
                           color: Colors.white.withOpacity(0.9),
@@ -147,9 +142,8 @@ class _LoginScreenState extends State<LoginScreen> {
                               offset: const Offset(0, 10),
                             ),
                           ],
-                          border: Border.all(color: const Color(0x11FFFFFF)),
                         ),
-                        padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
+                        padding: const EdgeInsets.all(18),
                         child: Form(
                           key: _formKey,
                           child: Column(
@@ -205,109 +199,29 @@ class _LoginScreenState extends State<LoginScreen> {
                                 },
                               ),
 
-                              // Forgot password
-                              Align(
-                                alignment: Alignment.centerRight,
-                                child: TextButton(
-                                  onPressed: () {
-                                    // TODO: navigate to forgot password
-                                  },
-                                  child: const Text(
-                                    'Forgot password?',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.w700,
-                                      color: AppColors.brandOrange,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(height: 4),
+                              const SizedBox(height: 20),
 
-                              // Sign in
+                              // Sign in button
                               SizedBox(
                                 width: double.infinity,
                                 height: 50,
                                 child: ElevatedButton(
                                   onPressed: _submit,
                                   style: ElevatedButton.styleFrom(
-                                    elevation: 0,
                                     shape: RoundedRectangleBorder(
                                       borderRadius: BorderRadius.circular(14),
                                     ),
                                     padding: EdgeInsets.zero,
                                   ),
-                                  child: Ink(
-                                    decoration: BoxDecoration(
-                                      gradient: const LinearGradient(
-                                        colors: [AppColors.brandOrange, Color(0xFFFFA53A)],
-                                      ),
-                                      borderRadius: BorderRadius.circular(14),
-                                    ),
-                                    child: const Center(
-                                      child: Text(
-                                        'Sign in',
-                                        style: TextStyle(
-                                          color: Colors.white,
-                                          fontWeight: FontWeight.w800,
-                                          fontSize: 16,
-                                        ),
-                                      ),
+                                  child: const Text(
+                                    'Sign in',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 16,
                                     ),
                                   ),
                                 ),
-                              ),
-
-                              const SizedBox(height: 16),
-
-                              // or divider
-                              Row(
-                                children: [
-                                  const Expanded(child: Divider(thickness: 1)),
-                                  const SizedBox(width: 10),
-                                  Text(
-                                    'or continue with',
-                                    style: TextStyle(
-                                      color: Colors.black.withOpacity(0.55),
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 10),
-                                  const Expanded(child: Divider(thickness: 1)),
-                                ],
-                              ),
-                              const SizedBox(height: 12),
-
-                              // Social auth buttons (placeholders)
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: OutlinedButton.icon(
-                                      onPressed: () {},
-                                      icon: const Icon(Icons.mail_outline),
-                                      label: const Text('Google'),
-                                      style: OutlinedButton.styleFrom(
-                                        padding: const EdgeInsets.symmetric(vertical: 12),
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(12),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: OutlinedButton.icon(
-                                      onPressed: () {},
-                                      icon: const Icon(Icons.apple),
-                                      label: const Text('Apple'),
-                                      style: OutlinedButton.styleFrom(
-                                        padding: const EdgeInsets.symmetric(vertical: 12),
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(12),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ],
                               ),
                             ],
                           ),
@@ -323,24 +237,22 @@ class _LoginScreenState extends State<LoginScreen> {
                             "Don't have an account?",
                             style: TextStyle(color: AppColors.body, fontWeight: FontWeight.w600),
                           ),
-                        TextButton(
-                        onPressed: () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute(builder: (_) => const RegisterScreen()),
-                          );
-                        },
-                        child: const Text(
-                          'Create one',
-                          style: TextStyle(
-                            color: AppColors.brandOrange,
-                            fontWeight: FontWeight.w800,
+                          TextButton(
+                            onPressed: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(builder: (_) => const RegisterScreen()),
+                              );
+                            },
+                            child: const Text(
+                              'Create one',
+                              style: TextStyle(
+                                color: AppColors.brandOrange,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
                           ),
-                        ),
-                      ),
-
                         ],
                       ),
-                      const SizedBox(height: 10),
                     ],
                   ),
                 ),
@@ -373,25 +285,6 @@ class _LoginScreenState extends State<LoginScreen> {
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
         borderSide: const BorderSide(color: AppColors.brandOrange, width: 1.2),
-      ),
-    );
-  }
-}
-
-class _Blob extends StatelessWidget {
-  final double size;
-  final Color color;
-  const _Blob({required this.size, required this.color});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: size, height: size,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: RadialGradient(
-          colors: [color, color.withOpacity(0.0)],
-        ),
       ),
     );
   }

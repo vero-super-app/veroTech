@@ -1,7 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:vero360_app/Pages/homepage.dart';
 import 'login_screen.dart';
-import 'landing_screen.dart';
+
 
 
 
@@ -81,7 +82,7 @@ void _next() {
     );
   } else {
    Navigator.of(context).pushReplacement(
-  MaterialPageRoute(builder: (_) => const LandingScreen()),
+  MaterialPageRoute(builder: (_) => const Vero360Homepage(email: '',)),
 );
 
   }
