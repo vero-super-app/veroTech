@@ -8,8 +8,8 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart'; // Import to format the date
 
 
-class BecomeSellerWidget extends StatelessWidget {
-  const BecomeSellerWidget({Key? key}) : super(key: key);
+class MerchantApplicationForm extends StatelessWidget {
+  const MerchantApplicationForm({Key? key}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {

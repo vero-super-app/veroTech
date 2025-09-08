@@ -7,8 +7,10 @@ plugins {
 
 android {
     namespace = "com.example.verotech_app"
-    compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
+
+    // ✅ Hard-coded versions (no flutter.* indirection)
+    compileSdk = 35
+    ndkVersion = "27.0.12077973"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
@@ -20,20 +22,23 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.example.verotech_app"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
-        targetSdk = flutter.targetSdkVersion
+
+        // ✅ Raise mins to satisfy Firebase + plugins
+        minSdk = 23
+        targetSdk = 34
+
+        // keep using Flutter-managed versionCode/Name (safe to leave)
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        // Optional: enable if you ever hit 65K refs; not required for minSdk 23
+        // multiDexEnabled = true
     }
 
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
+            // Signing with debug key so `flutter run --release` works
             signingConfig = signingConfigs.getByName("debug")
         }
     }
