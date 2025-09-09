@@ -19,12 +19,11 @@ class AppColors {
 
   static const title = Color(0xFF101010);
   static const body = Color(0xFF6B6B6B);
-  static const chip = Color(0xFFF9F5EF); // warmer chip
+  static const chip = Color(0xFFF9F5EF);
   static const card = Color(0xFFFFFFFF);
   static const bgTop = Color(0xFFFFF0E1);
   static const bgBottom = Color(0xFFFFFFFF);
 
-  // Optionally keep gradients for other parts of the app
   static const taxiGrad = [Color(0xFF2EC5CE), Color(0xFF8DE9D9)];
   static const hostelGrad = [Color(0xFF845EF7), Color(0xFFA78BFA)];
   static const apartmentGrad = [Color(0xFFFF8A00), Color(0xFFFFB85C)];
@@ -48,6 +47,8 @@ String _firstNameFromEmail(String? e) {
   if (e == null) return 'there';
   final trimmed = e.trim();
   if (trimmed.isEmpty) return 'there';
+  // if phone-like, just return 'there'
+  if (RegExp(r'^\+?\d+$').hasMatch(trimmed)) return 'there';
   final at = trimmed.indexOf('@');
   final base = at == -1 ? trimmed : trimmed.substring(0, at);
   if (base.isEmpty) return 'there';
@@ -77,8 +78,8 @@ class _Vero360HomepageState extends State<Vero360Homepage> {
       tint: AppColors.brandOrange,
     ),
     _Promo(
-      title: 'Ride Deals',
-      subtitle: 'Taxi • 15% off',
+      title: 'Vero Ride ',
+      subtitle: 'Ride • 15% off',
       code: 'Use code GO15',
       image: 'assets/uber-cabs-1024x576.webp',
       bg: Color(0xFFFFF0E1),
@@ -102,10 +103,9 @@ class _Vero360HomepageState extends State<Vero360Homepage> {
 
   @override
   Widget build(BuildContext context) {
-    final greeting = 'Hi, ${_firstNameFromEmail(widget.email)}';
+    final greeting = 'Hi, ${_firstNameFromEmail(widget.email)} 👋';
 
     return Scaffold(
-      // Warm subtle gradient background to reduce the “all white” look
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
@@ -119,15 +119,22 @@ class _Vero360HomepageState extends State<Vero360Homepage> {
           slivers: [
             SliverToBoxAdapter(
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
-                child: _TopSection(
-                  animateIn: _animateIn,
-                  greeting: greeting,
-                  searchController: _search,
-                  onSearchTap: _onSearchTap,
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                child: Column(
+                  children: [
+                    _BrandBar(appName: 'Vero360', logoPath: 'assets/logo_mark.jpg'),
+                    const SizedBox(height: 12),
+                    _TopSection(
+                      animateIn: _animateIn,
+                      greeting: greeting,
+                      searchController: _search,
+                      onSearchTap: _onSearchTap,
+                    ),
+                  ],
                 ),
               ),
             ),
+
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
@@ -142,11 +149,9 @@ class _Vero360HomepageState extends State<Vero360Homepage> {
             ),
             const SliverToBoxAdapter(child: SizedBox(height: 10)),
 
-            // Quick strip with orangish chips
             const SliverToBoxAdapter(child: _QuickStrip()),
             const SliverToBoxAdapter(child: SizedBox(height: 12)),
 
-            // Services grid (images larger + orange accents)
             SliverToBoxAdapter(
               child: _Section(
                 title: 'Services',
@@ -167,19 +172,15 @@ class _Vero360HomepageState extends State<Vero360Homepage> {
               ),
             ),
 
-            // Near you (slidable)
             const SliverToBoxAdapter(child: _NearYouCarousel()),
             const SliverToBoxAdapter(child: SizedBox(height: 8)),
 
-            // Testimonials
             const SliverToBoxAdapter(child: _Testimonials()),
             const SliverToBoxAdapter(child: SizedBox(height: 6)),
 
-            // Deals strip (orange gradient chips)
             const SliverToBoxAdapter(child: _DealsStrip()),
             const SliverToBoxAdapter(child: SizedBox(height: 12)),
 
-            // Latest Arrivals
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
@@ -187,7 +188,6 @@ class _Vero360HomepageState extends State<Vero360Homepage> {
               ),
             ),
 
-            // CTA
             const SliverToBoxAdapter(child: _CTA()),
             const SliverToBoxAdapter(child: SizedBox(height: 28)),
           ],
@@ -197,7 +197,6 @@ class _Vero360HomepageState extends State<Vero360Homepage> {
   }
 
   void _onSearchTap() {
-    // hook up to your location picker / search route
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Search location tapped')),
     );
@@ -207,7 +206,7 @@ class _Vero360HomepageState extends State<Vero360Homepage> {
     Widget page;
     switch (key) {
       case 'food': page = FoodPage(); break;
-      case 'grocery': page = FoodPage(); break; // or your dedicated grocery page
+      case 'grocery': page = FoodPage(); break;
       case 'courier': page = const UtilityPage(); break;
       case 'taxi': page = const TaxiPage(); break;
       case 'send_money': page = const MobilemoneyPage(); break;
@@ -225,7 +224,80 @@ class _Vero360HomepageState extends State<Vero360Homepage> {
 }
 
 /// ─────────────────────────────────────────────────────────────────
-/// TOP SECTION (search pill + Pay chip + greeting)
+/// BRAND BAR (logo + name + actions)
+/// ─────────────────────────────────────────────────────────────────
+class _BrandBar extends StatelessWidget {
+  final String appName;
+  final String logoPath;
+  const _BrandBar({required this.appName, required this.logoPath});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        // App logo
+        Container(
+          padding: const EdgeInsets.all(3),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [AppColors.brandOrange, Color(0xFFFFB85C)],
+            ),
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.brandOrange.withOpacity(0.20),
+                blurRadius: 18,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: CircleAvatar(
+            radius: 20,
+            backgroundColor: Colors.white,
+            child: ClipOval(
+              child: Image.asset(
+                logoPath,
+                width: 30,
+                height: 30,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) =>
+                    const Icon(Icons.eco, size: 22, color: AppColors.brandOrange),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 10),
+        // App name
+        Text(
+          appName,
+          style: const TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.w900,
+            color: AppColors.title,
+            letterSpacing: 0.2,
+          ),
+        ),
+        const Spacer(),
+        // Actions
+        IconButton(
+          visualDensity: VisualDensity.compact,
+          onPressed: () {},
+          icon: const Icon(Icons.notifications_active_outlined, color: AppColors.title),
+          tooltip: 'Notifications',
+        ),
+        const SizedBox(width: 4),
+        CircleAvatar(
+          radius: 14,
+          backgroundColor: AppColors.brandOrangePale,
+          child: const Icon(Icons.person_outline, size: 18, color: AppColors.brandOrange),
+        ),
+      ],
+    );
+  }
+}
+
+/// ─────────────────────────────────────────────────────────────────
+/// TOP SECTION (greeting + search pill + Pay chip)
 /// ─────────────────────────────────────────────────────────────────
 class _TopSection extends StatelessWidget {
   final bool animateIn;
@@ -290,7 +362,7 @@ class _TopSection extends StatelessWidget {
                           SizedBox(width: 8),
                           Expanded(
                             child: Text(
-                              'Search location',
+                              'what are you looking for?',
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
@@ -373,7 +445,7 @@ class _Promo {
   });
 }
 
-/// Promo carousel with orangish background
+/// Promo carousel
 class _PromoCarousel extends StatelessWidget {
   final List<_Promo> promos;
   final ValueChanged<int> onIndex;
@@ -407,7 +479,6 @@ class _PromoCarousel extends StatelessWidget {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                // Right image
                 Align(
                   alignment: Alignment.centerRight,
                   child: ClipRRect(
@@ -430,7 +501,6 @@ class _PromoCarousel extends StatelessWidget {
                     ),
                   ),
                 ),
-                // Left copy
                 Padding(
                   padding: const EdgeInsets.fromLTRB(14, 14, 180, 14),
                   child: Column(
@@ -442,6 +512,7 @@ class _PromoCarousel extends StatelessWidget {
                             fontWeight: FontWeight.w900,
                             fontSize: 18,
                           )),
+                      const SizedBox(height: 2),
                       const SizedBox(height: 2),
                       Text(p.subtitle,
                           style: const TextStyle(
@@ -508,7 +579,7 @@ class _Dots extends StatelessWidget {
   }
 }
 
-/// Quick chips (orangish)
+/// Quick chips (keep design)
 class _QuickStrip extends StatelessWidget {
   const _QuickStrip();
   @override
@@ -543,7 +614,7 @@ class _QuickStrip extends StatelessWidget {
   }
 }
 
-/// SERVICES — compact white tiles with **larger images** and orange accents
+/// SERVICES — icons/keys aligned with routes
 class _ServicesGridLite extends StatelessWidget {
   final void Function(String key) onOpen;
   const _ServicesGridLite({required this.onOpen});
@@ -551,19 +622,22 @@ class _ServicesGridLite extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final items = <_ServiceLite>[
-      _ServiceLite('food', 'Food', '20 min', 'assets/veggies.jpg',
+      _ServiceLite('food', 'Food', '15 min', 'assets/Queens-Tavern-Steak.jpg',
           Icons.fastfood_rounded),
-      _ServiceLite('grocery', 'Grocery', '15 min', 'assets/basket.jpg',
-          Icons.local_grocery_store_rounded),
-      _ServiceLite('courier', 'Courier', '18 min',
-          'assets/Queens-Tavern-Steak.jpg', Icons.local_shipping_rounded),
-      _ServiceLite('taxi', 'Taxi', '15 min',
+      _ServiceLite('taxi', 'Vero Ride', '15 min',
           'assets/uber-cabs-1024x576.webp', Icons.local_taxi_rounded),
-      _ServiceLite('send_money', 'Send Money', '—', '', Icons.send_rounded),
+      _ServiceLite('mobile_money', 'Vero Pay', '—', '',
+          Icons.account_balance_wallet_rounded),
+      _ServiceLite('accommodation', 'Accommodation', '15 min', '',
+          Icons.bed_rounded),
+      _ServiceLite('education', 'Education', '—', '',
+          Icons.school_rounded),
+      _ServiceLite('fx', 'Exchange Rate', '—', '',
+          Icons.currency_exchange_rounded),
       _ServiceLite('home_cleaning', 'Home Cleaning', '18 min', '',
           Icons.cleaning_services_rounded),
-      _ServiceLite('medicine', 'Medicine', '20 min', '', Icons.medication_rounded),
-      _ServiceLite('doctor', 'Doctor', '10 min', '', Icons.medical_services_rounded),
+      _ServiceLite('medicine', 'Medicine', '20 min', '',
+          Icons.medication_rounded),
     ];
 
     return LayoutBuilder(builder: (context, c) {
@@ -576,7 +650,6 @@ class _ServicesGridLite extends StatelessWidget {
           crossAxisCount: cross,
           crossAxisSpacing: 12,
           mainAxisSpacing: 12,
-          // ↓ slightly taller cards to fit larger images
           childAspectRatio: 1.05,
         ),
         itemBuilder: (_, i) => _ServiceLiteTile(
@@ -609,7 +682,6 @@ class _ServiceLiteTile extends StatelessWidget {
           borderRadius: BorderRadius.circular(16),
           border: Border.all(color: AppColors.brandOrangeSoft),
           boxShadow: [
-            // soft orangish shadow for warmth
             BoxShadow(
               color: AppColors.brandOrange.withOpacity(0.08),
               blurRadius: 12,
@@ -624,7 +696,6 @@ class _ServiceLiteTile extends StatelessWidget {
             padding: const EdgeInsets.all(12),
             child:
                 Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              // ETA tag
               Row(
                 children: [
                   if (item.eta != '—')
@@ -647,7 +718,6 @@ class _ServiceLiteTile extends StatelessWidget {
                 ],
               ),
               const Spacer(),
-              // Illustration / image area — **bigger now**
               Center(
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(
@@ -686,7 +756,7 @@ class _ServiceLiteTile extends StatelessWidget {
   }
 }
 
-/// NEAR YOU — slidable carousel with slight orange border
+/// NEAR YOU
 class _NearYouCarousel extends StatefulWidget {
   const _NearYouCarousel();
   @override
@@ -869,7 +939,7 @@ class _TestimonialCard extends StatelessWidget {
   }
 }
 
-/// DEALS STRIP (orange gradient chips)
+/// DEALS STRIP
 class _DealsStrip extends StatelessWidget {
   const _DealsStrip();
   @override

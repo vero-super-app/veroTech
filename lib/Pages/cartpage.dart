@@ -18,23 +18,23 @@ class _CartPageState extends State<CartPage> {
   @override
   void initState() {
     super.initState();
-    _loadCartItems();
+    _cartItemsFuture = _loadCartItems(); // ✅ initialize here
   }
 
-  void _loadCartItems() async {
+  Future<List<CartModel>> _loadCartItems() async {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('jwt_token');
-
-    // Pass token to cart service
-    _cartItemsFuture = widget.cartService.fetchCartItems(token: token);
-    setState(() {});
+    return widget.cartService.fetchCartItems(token: token);
   }
 
   Future<void> _removeFromCart(int itemId) async {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('jwt_token');
     await widget.cartService.removeFromCart(itemId, token: token);
-    setState(() => _loadCartItems());
+
+    setState(() {
+      _cartItemsFuture = _loadCartItems(); // ✅ refresh after removal
+    });
   }
 
   @override
@@ -56,7 +56,9 @@ class _CartPageState extends State<CartPage> {
           } else {
             final cartModels = snapshot.data!;
             double total = cartModels.fold(
-                0, (sum, item) => sum + (item.price * item.quantity));
+              0,
+              (sum, item) => sum + (item.price * item.quantity),
+            );
 
             return Column(
               children: [
@@ -136,9 +138,10 @@ class _CartPageState extends State<CartPage> {
           SizedBox(
             width: double.infinity,
             child: ElevatedButton(
-              onPressed: () {}, // Checkout logic
-              style:
-                  ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
+              onPressed: () {}, // TODO: Add checkout logic
+              style: ElevatedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+              ),
               child: const Text('Checkout', style: TextStyle(fontSize: 16)),
             ),
           ),
@@ -154,7 +157,8 @@ class _CartPageState extends State<CartPage> {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(label,
-              style: TextStyle(fontWeight: isTotal ? FontWeight.bold : FontWeight.normal)),
+              style: TextStyle(
+                  fontWeight: isTotal ? FontWeight.bold : FontWeight.normal)),
           Text('MWK${amount.toStringAsFixed(2)}',
               style: TextStyle(color: isTotal ? Colors.green : Colors.black)),
         ],

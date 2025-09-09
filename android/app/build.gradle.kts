@@ -25,7 +25,7 @@ android {
         applicationId = "com.example.verotech_app"
 
         // ✅ Raise mins to satisfy Firebase + plugins
-        minSdk = 23
+        minSdk = flutter.minSdkVersion
         targetSdk = 34
 
         // keep using Flutter-managed versionCode/Name (safe to leave)

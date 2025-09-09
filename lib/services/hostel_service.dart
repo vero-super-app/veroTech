@@ -5,7 +5,7 @@ import 'package:vero360_app/models/hostel_model.dart';
 
 
 class HostelService {
-  static const String apiUrl = 'http://127.0.0.1:3000/hostels/allhouses';
+  static const String apiUrl = 'https://vero-backend.onrender.com/accommodations';
 
   Future<List<Hostel>> fetchHostels() async {
     final response = await http.get(Uri.parse(apiUrl));

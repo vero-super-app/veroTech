@@ -23,7 +23,7 @@ class _BottomnavbarState extends State<Bottomnavbar> {
   int _selectedIndex = 0;
   late final List<Widget> _pages;
   final CartService cartService =
-      CartService('https://vero-backend.onrender.com/cart');
+      CartService('https://vero-backend.onrender.com');
   bool _isLoggedIn = false;
 
   // Brand vibe

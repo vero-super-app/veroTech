@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vero360_app/Pages/homepage.dart';
 import 'package:vero360_app/services/auth_service.dart';
+import 'package:vero360_app/toasthelper.dart';
 import 'register_screen.dart';
 
 class AppColors {
@@ -10,6 +11,8 @@ class AppColors {
   static const body = Color(0xFF6B6B6B);
   static const fieldFill = Color(0xFFF7F7F9);
 }
+
+enum LoginMode { password, otp }
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -20,54 +23,90 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _email = TextEditingController();
+  final _identifier = TextEditingController(); // email or phone
   final _password = TextEditingController();
+  final _otpCtrl  = TextEditingController();
+
   bool _obscure = true;
+  bool _loading = false;
+  LoginMode _mode = LoginMode.password;
+  bool _otpSent = false;
 
   @override
   void dispose() {
-    _email.dispose();
+    _identifier.dispose();
     _password.dispose();
+    _otpCtrl.dispose();
     super.dispose();
   }
 
-  // 🔹 Handle login
-  void _submit() async {
-    if (_formKey.currentState?.validate() ?? false) {
-      FocusScope.of(context).unfocus();
+  Future<void> _submit() async {
+    if (!(_formKey.currentState?.validate() ?? false)) return;
+    FocusScope.of(context).unfocus();
+    setState(() => _loading = true);
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Signing in...')),
-      );
-
-      try {
-        final result = await AuthService().login(
-          _email.text.trim(),
+    try {
+      if (_mode == LoginMode.password) {
+        // loginWithIdentifier returns Map<String, dynamic>? (token, user) or null
+        final Map<String, dynamic>? result = await AuthService().loginWithIdentifier(
+          _identifier.text.trim(),
           _password.text.trim(),
+          context,
         );
 
-        if (result != null && result.containsKey("token")) {
-          // Save email (already saved in AuthService, but redundant for safety)
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setString("email", _email.text.trim());
-
-          if (!mounted) return;
-          Navigator.of(context).pushReplacement(
-            MaterialPageRoute(
-              builder: (_) => Vero360Homepage(email: _email.text.trim()),
-            ),
-          );
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Invalid credentials ❌')),
-          );
+        if (result != null && result.containsKey('token')) {
+          await _persistAndGoHome(_identifier.text.trim());
         }
-      } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
-        );
+      } else {
+        // OTP mode
+        if (!_otpSent) {
+          final ok = await AuthService().sendOtp(
+            _identifier.text.trim(),
+            context,
+          );
+          if (ok) setState(() => _otpSent = true);
+        } else {
+          final code = _otpCtrl.text.trim();
+          if (code.isEmpty || code.length < 4) {
+            ToastHelper.showCustomToast(context, 'Enter the OTP code', isSuccess: false);
+            return;
+          }
+          // verifyOtp returns bool
+          final ok = await AuthService().verifyOtp(
+            _identifier.text.trim(),
+            code,
+            context,
+          );
+          if (ok) {
+            await _persistAndGoHome(_identifier.text.trim());
+          }
+        }
       }
+    } catch (e) {
+      ToastHelper.showCustomToast(context, ' Error: $e', isSuccess: false);
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
+  }
+
+  Future<void> _persistAndGoHome(String id) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('email', id); // keep same key used elsewhere
+    if (!mounted) return;
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(
+        builder: (_) => Vero360Homepage(email: id),
+      ),
+    );
+  }
+
+  void _switchMode(LoginMode m) {
+    setState(() {
+      _mode = m;
+      _otpSent = false;
+      _otpCtrl.clear();
+      _password.clear();
+    });
   }
 
   @override
@@ -85,8 +124,6 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
             ),
           ),
-
-          // Content
           SafeArea(
             child: Center(
               child: SingleChildScrollView(
@@ -130,7 +167,63 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                       const SizedBox(height: 22),
 
-                      // Form
+                      // Mode toggle
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: _loading ? null : () => _switchMode(LoginMode.password),
+                              style: OutlinedButton.styleFrom(
+                                backgroundColor: _mode == LoginMode.password
+                                    ? AppColors.brandOrange.withOpacity(0.1)
+                                    : Colors.transparent,
+                                side: BorderSide(
+                                  color: _mode == LoginMode.password
+                                      ? AppColors.brandOrange
+                                      : Colors.black12,
+                                ),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                              ),
+                              child: Text(
+                                'Password',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  color: _mode == LoginMode.password ? AppColors.brandOrange : AppColors.title,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: _loading ? null : () => _switchMode(LoginMode.otp),
+                              style: OutlinedButton.styleFrom(
+                                backgroundColor: _mode == LoginMode.otp
+                                    ? AppColors.brandOrange.withOpacity(0.1)
+                                    : Colors.transparent,
+                                side: BorderSide(
+                                  color: _mode == LoginMode.otp
+                                      ? AppColors.brandOrange
+                                      : Colors.black12,
+                                ),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                              ),
+                              child: Text(
+                                'OTP',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  color: _mode == LoginMode.otp ? AppColors.brandOrange : AppColors.title,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+
+                      // Form card
                       Container(
                         decoration: BoxDecoration(
                           color: Colors.white.withOpacity(0.9),
@@ -148,74 +241,117 @@ class _LoginScreenState extends State<LoginScreen> {
                           key: _formKey,
                           child: Column(
                             children: [
-                              // Email
+                              // Email or Phone (+265 allowed)
                               TextFormField(
-                                controller: _email,
+                                controller: _identifier,
                                 keyboardType: TextInputType.emailAddress,
                                 textInputAction: TextInputAction.next,
                                 decoration: _fieldDecoration(
-                                  label: 'Email',
-                                  hint: 'you@example.com',
-                                  icon: Icons.alternate_email,
+                                  label: 'Email or Phone',
+                                  hint: 'you@example.com or +2659XXXXXXXX',
+                                  icon: Icons.person_outline,
                                 ),
                                 validator: (v) {
-                                  if (v == null || v.trim().isEmpty) {
-                                    return 'Email is required';
-                                  }
-                                  final ok = RegExp(
-                                    r"^[\w\.\-]+@([\w\-]+\.)+[\w\-]{2,}$",
-                                  ).hasMatch(v.trim());
-                                  return ok ? null : 'Enter a valid email';
-                                },
-                              ),
-                              const SizedBox(height: 14),
-
-                              // Password
-                              TextFormField(
-                                controller: _password,
-                                obscureText: _obscure,
-                                textInputAction: TextInputAction.done,
-                                onFieldSubmitted: (_) => _submit(),
-                                decoration: _fieldDecoration(
-                                  label: 'Password',
-                                  hint: '••••••••',
-                                  icon: Icons.lock_outline,
-                                  trailing: IconButton(
-                                    tooltip: _obscure ? 'Show' : 'Hide',
-                                    icon: Icon(
-                                      _obscure ? Icons.visibility : Icons.visibility_off,
-                                    ),
-                                    onPressed: () => setState(() => _obscure = !_obscure),
-                                  ),
-                                ),
-                                validator: (v) {
-                                  if (v == null || v.isEmpty) {
-                                    return 'Password is required';
-                                  }
-                                  if (v.length < 6) {
-                                    return 'Must be at least 6 characters';
+                                  final val = v?.trim() ?? '';
+                                  if (val.isEmpty) return 'Email or phone is required';
+                                  final isEmail = RegExp(r'^[\w\.\-]+@([\w\-]+\.)+[\w\-]{2,}$').hasMatch(val);
+                                  final digits = val.replaceAll(RegExp(r'\D'), '');
+                                  final isLocal = RegExp(r'^(08|09)\d{8}$').hasMatch(digits);
+                                  final isE164  = RegExp(r'^\+265[89]\d{8}$').hasMatch(val);
+                                  if (!isEmail && !isLocal && !isE164) {
+                                    return 'Use email or phone (08/09… or +265…)';
                                   }
                                   return null;
                                 },
                               ),
+                              const SizedBox(height: 14),
+
+                              if (_mode == LoginMode.password) ...[
+                                // Password
+                                TextFormField(
+                                  controller: _password,
+                                  obscureText: _obscure,
+                                  textInputAction: TextInputAction.done,
+                                  onFieldSubmitted: (_) => _submit(),
+                                  decoration: _fieldDecoration(
+                                    label: 'Password',
+                                    hint: '••••••••',
+                                    icon: Icons.lock_outline,
+                                    trailing: IconButton(
+                                      tooltip: _obscure ? 'Show' : 'Hide',
+                                      icon: Icon(_obscure ? Icons.visibility : Icons.visibility_off),
+                                      onPressed: () => setState(() => _obscure = !_obscure),
+                                    ),
+                                  ),
+                                  validator: (v) {
+                                    if (_mode != LoginMode.password) return null;
+                                    if (v == null || v.isEmpty) return 'Password is required';
+                                    if (v.length < 6) return 'Must be at least 6 characters';
+                                    return null;
+                                  },
+                                ),
+                              ] else ...[
+                                // OTP
+                                if (_otpSent) ...[
+                                  TextFormField(
+                                    controller: _otpCtrl,
+                                    keyboardType: TextInputType.number,
+                                    textInputAction: TextInputAction.done,
+                                    onFieldSubmitted: (_) => _submit(),
+                                    decoration: _fieldDecoration(
+                                      label: 'Enter OTP',
+                                      hint: '123456',
+                                      icon: Icons.sms_outlined,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Align(
+                                    alignment: Alignment.centerRight,
+                                    child: TextButton.icon(
+                                      onPressed: _loading
+                                          ? null
+                                          : () async {
+                                              final ok = await AuthService().sendOtp(
+                                                _identifier.text.trim(),
+                                                context,
+                                              );
+                                              if (ok) setState(() => _otpSent = true);
+                                            },
+                                      icon: const Icon(Icons.refresh),
+                                      label: const Text('Resend OTP'),
+                                    ),
+                                  ),
+                                ] else ...[
+                                  const Text(
+                                    'We’ll send a one-time code to your email or phone.',
+                                    style: TextStyle(color: AppColors.body),
+                                  ),
+                                ],
+                              ],
 
                               const SizedBox(height: 20),
 
-                              // Sign in button
+                              // Primary button
                               SizedBox(
                                 width: double.infinity,
                                 height: 50,
                                 child: ElevatedButton(
-                                  onPressed: _submit,
+                                  onPressed: _loading ? null : _submit,
                                   style: ElevatedButton.styleFrom(
+                                    backgroundColor: AppColors.brandOrange,
                                     shape: RoundedRectangleBorder(
                                       borderRadius: BorderRadius.circular(14),
                                     ),
-                                    padding: EdgeInsets.zero,
                                   ),
-                                  child: const Text(
-                                    'Sign in',
-                                    style: TextStyle(
+                                  child: Text(
+                                    _loading
+                                        ? (_mode == LoginMode.password
+                                            ? 'Signing in…'
+                                            : (_otpSent ? 'Verifying…' : 'Sending OTP…'))
+                                        : (_mode == LoginMode.password
+                                            ? 'Sign in'
+                                            : (_otpSent ? 'Verify OTP' : 'Send OTP')),
+                                    style: const TextStyle(
                                       color: Colors.white,
                                       fontWeight: FontWeight.w800,
                                       fontSize: 16,
@@ -238,11 +374,13 @@ class _LoginScreenState extends State<LoginScreen> {
                             style: TextStyle(color: AppColors.body, fontWeight: FontWeight.w600),
                           ),
                           TextButton(
-                            onPressed: () {
-                              Navigator.of(context).push(
-                                MaterialPageRoute(builder: (_) => const RegisterScreen()),
-                              );
-                            },
+                            onPressed: _loading
+                                ? null
+                                : () {
+                                    Navigator.of(context).push(
+                                      MaterialPageRoute(builder: (_) => const RegisterScreen()),
+                                    );
+                                  },
                             child: const Text(
                               'Create one',
                               style: TextStyle(
