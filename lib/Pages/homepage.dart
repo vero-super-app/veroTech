@@ -19,21 +19,9 @@ class AppColors {
 
   static const title = Color(0xFF101010);
   static const body = Color(0xFF6B6B6B);
-  static const chip = Color(0xFFF9F5EF); // warmer chip
+  static const chip = Color(0xFFF9F5EF);
   static const card = Color(0xFFFFFFFF);
-  static const bgTop = Color(0xFFFFF0E1);
   static const bgBottom = Color(0xFFFFFFFF);
-
-  // Optionally keep gradients for other parts of the app
-  static const taxiGrad = [Color(0xFF2EC5CE), Color(0xFF8DE9D9)];
-  static const hostelGrad = [Color(0xFF845EF7), Color(0xFFA78BFA)];
-  static const apartmentGrad = [Color(0xFFFF8A00), Color(0xFFFFB85C)];
-  static const foodGrad = [Color(0xFFFF5D5D), Color(0xFFFF9A9A)];
-  static const utilityGrad = [Color(0xFF22C55E), Color(0xFFA7F3D0)];
-  static const mmGrad = [Color(0xFF60A5FA), Color(0xFFA5B4FC)];
-  static const fxGrad = [Color(0xFF94A3B8), Color(0xFFCBD5E1)];
-  static const eduGrad = [Color(0xFFFF8A00), Color(0xFFFFC38A)];
-  static const moreGrad = [Color(0xFF111827), Color(0xFF374151)];
 }
 
 class Vero360Homepage extends StatefulWidget {
@@ -46,12 +34,10 @@ class Vero360Homepage extends StatefulWidget {
 
 String _firstNameFromEmail(String? e) {
   if (e == null) return 'there';
-  final trimmed = e.trim();
-  if (trimmed.isEmpty) return 'there';
-  final at = trimmed.indexOf('@');
-  final base = at == -1 ? trimmed : trimmed.substring(0, at);
-  if (base.isEmpty) return 'there';
-  return base[0].toUpperCase() + base.substring(1);
+  final t = e.trim();
+  if (t.isEmpty) return 'there';
+  final base = t.contains('@') ? t.split('@').first : t;
+  return base.isEmpty ? 'there' : (base[0].toUpperCase() + base.substring(1));
 }
 
 class _Vero360HomepageState extends State<Vero360Homepage> {
@@ -105,7 +91,6 @@ class _Vero360HomepageState extends State<Vero360Homepage> {
     final greeting = 'Hi, ${_firstNameFromEmail(widget.email)}';
 
     return Scaffold(
-      // Warm subtle gradient background to reduce the “all white” look
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
@@ -117,6 +102,7 @@ class _Vero360HomepageState extends State<Vero360Homepage> {
         child: CustomScrollView(
           physics: const BouncingScrollPhysics(),
           slivers: [
+            // Top section
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
@@ -128,6 +114,7 @@ class _Vero360HomepageState extends State<Vero360Homepage> {
                 ),
               ),
             ),
+            // Promo carousel
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
@@ -142,11 +129,11 @@ class _Vero360HomepageState extends State<Vero360Homepage> {
             ),
             const SliverToBoxAdapter(child: SizedBox(height: 10)),
 
-            // Quick strip with orangish chips
+            // Quick strip
             const SliverToBoxAdapter(child: _QuickStrip()),
             const SliverToBoxAdapter(child: SizedBox(height: 12)),
 
-            // Services grid (images larger + orange accents)
+            // Core Services
             SliverToBoxAdapter(
               child: _Section(
                 title: 'Services',
@@ -167,7 +154,18 @@ class _Vero360HomepageState extends State<Vero360Homepage> {
               ),
             ),
 
-            // Near you (slidable)
+            // Super App additions (Gym, Barbershop, Salon, Hostels, Hotels)
+            SliverToBoxAdapter(
+              child: _Section(
+                title: 'Super App',
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: _SuperAppGrid(onOpen: _openService),
+                ),
+              ),
+            ),
+
+            // Near you
             const SliverToBoxAdapter(child: _NearYouCarousel()),
             const SliverToBoxAdapter(child: SizedBox(height: 8)),
 
@@ -175,7 +173,7 @@ class _Vero360HomepageState extends State<Vero360Homepage> {
             const SliverToBoxAdapter(child: _Testimonials()),
             const SliverToBoxAdapter(child: SizedBox(height: 6)),
 
-            // Deals strip (orange gradient chips)
+            // Deals strip
             const SliverToBoxAdapter(child: _DealsStrip()),
             const SliverToBoxAdapter(child: SizedBox(height: 12)),
 
@@ -197,7 +195,6 @@ class _Vero360HomepageState extends State<Vero360Homepage> {
   }
 
   void _onSearchTap() {
-    // hook up to your location picker / search route
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Search location tapped')),
     );
@@ -206,18 +203,29 @@ class _Vero360HomepageState extends State<Vero360Homepage> {
   void _openService(String key) {
     Widget page;
     switch (key) {
+      // Core services
       case 'food': page = FoodPage(); break;
-      case 'grocery': page = FoodPage(); break; // or your dedicated grocery page
+      case 'grocery': page = FoodPage(); break; // or your grocery page
       case 'courier': page = const UtilityPage(); break;
       case 'taxi': page = const TaxiPage(); break;
       case 'send_money': page = const MobilemoneyPage(); break;
       case 'home_cleaning': page = const UtilityPage(); break;
-      case 'medicine': page = const UtilityPage(); break;
-      case 'doctor': page = const EducationPage(); break;
+      case 'doctor': page = const EducationPage(); break; // kept if needed
+      case 'hospital': page = const UtilityPage(); break; // placeholder
+
+      // Super App routes
+      case 'gym': page = const MorePage(); break;
+      case 'barbershop': page = const MorePage(); break;
+      case 'salon': page = const MorePage(); break;
+      case 'hostels': page = const AccomodationPage(); break;
+      case 'hotels': page = const AccomodationPage(); break;
+
+      // Extras
       case 'accommodation': page = const AccomodationPage(); break;
       case 'mobile_money': page = const MobilemoneyPage(); break;
       case 'fx': page = const ExchangeRateScreen(); break;
       case 'education': page = const EducationPage(); break;
+
       default: page = const MorePage();
     }
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => page));
@@ -225,7 +233,7 @@ class _Vero360HomepageState extends State<Vero360Homepage> {
 }
 
 /// ─────────────────────────────────────────────────────────────────
-/// TOP SECTION (search pill + Pay chip + greeting)
+/// TOP SECTION
 /// ─────────────────────────────────────────────────────────────────
 class _TopSection extends StatelessWidget {
   final bool animateIn;
@@ -251,7 +259,6 @@ class _TopSection extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Greeting
             Text(
               greeting,
               style: const TextStyle(
@@ -261,8 +268,6 @@ class _TopSection extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 10),
-
-            // Search location pill + Pay chip
             Row(
               children: [
                 Expanded(
@@ -306,8 +311,6 @@ class _TopSection extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 10),
-
-                // Pay chip (black)
                 InkWell(
                   onTap: () {
                     ScaffoldMessenger.of(context).showSnackBar(
@@ -355,14 +358,10 @@ class _TopSection extends StatelessWidget {
   }
 }
 
-/// Promo data
+/// Promo data + carousel
 class _Promo {
-  final String title;
-  final String subtitle;
-  final String code;
-  final String image;
-  final Color bg;
-  final Color tint;
+  final String title, subtitle, code, image;
+  final Color bg, tint;
   const _Promo({
     required this.title,
     required this.subtitle,
@@ -373,7 +372,6 @@ class _Promo {
   });
 }
 
-/// Promo carousel with orangish background
 class _PromoCarousel extends StatelessWidget {
   final List<_Promo> promos;
   final ValueChanged<int> onIndex;
@@ -407,7 +405,6 @@ class _PromoCarousel extends StatelessWidget {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                // Right image
                 Align(
                   alignment: Alignment.centerRight,
                   child: ClipRRect(
@@ -430,7 +427,6 @@ class _PromoCarousel extends StatelessWidget {
                     ),
                   ),
                 ),
-                // Left copy
                 Padding(
                   padding: const EdgeInsets.fromLTRB(14, 14, 180, 14),
                   child: Column(
@@ -481,8 +477,7 @@ class _PromoCarousel extends StatelessWidget {
 }
 
 class _Dots extends StatelessWidget {
-  final int count;
-  final int index;
+  final int count, index;
   const _Dots({required this.count, required this.index});
   @override
   Widget build(BuildContext context) {
@@ -508,7 +503,7 @@ class _Dots extends StatelessWidget {
   }
 }
 
-/// Quick chips (orangish)
+/// Quick strip
 class _QuickStrip extends StatelessWidget {
   const _QuickStrip();
   @override
@@ -532,9 +527,10 @@ class _QuickStrip extends StatelessWidget {
             border: Border.all(color: AppColors.brandOrangeSoft),
           ),
           child: Center(
-              child: Text('${items[i][0]}  ${items[i][1]}',
-                  style: const TextStyle(
-                      fontWeight: FontWeight.w700, color: AppColors.title))),
+            child: Text('${items[i][0]}  ${items[i][1]}',
+                style: const TextStyle(
+                    fontWeight: FontWeight.w700, color: AppColors.title)),
+          ),
         ),
         separatorBuilder: (_, __) => const SizedBox(width: 8),
         itemCount: items.length,
@@ -543,7 +539,7 @@ class _QuickStrip extends StatelessWidget {
   }
 }
 
-/// SERVICES — compact white tiles with **larger images** and orange accents
+/// SERVICES — compact tiles (removed Medicine, added Hospital)
 class _ServicesGridLite extends StatelessWidget {
   final void Function(String key) onOpen;
   const _ServicesGridLite({required this.onOpen});
@@ -562,10 +558,54 @@ class _ServicesGridLite extends StatelessWidget {
       _ServiceLite('send_money', 'Send Money', '—', '', Icons.send_rounded),
       _ServiceLite('home_cleaning', 'Home Cleaning', '18 min', '',
           Icons.cleaning_services_rounded),
-      _ServiceLite('medicine', 'Medicine', '20 min', '', Icons.medication_rounded),
+      // removed: medicine
+      _ServiceLite('hospital', 'Hospital', '10 min', '', Icons.local_hospital_rounded),
       _ServiceLite('doctor', 'Doctor', '10 min', '', Icons.medical_services_rounded),
     ];
 
+    return _ResponsiveGrid(
+      items: items,
+      onOpen: onOpen,
+      childAspectRatio: 1.05, // taller to fit bigger images
+    );
+  }
+}
+
+/// SUPER APP — Gym, Barbershop, Salon, Hostels, Hotels
+class _SuperAppGrid extends StatelessWidget {
+  final void Function(String key) onOpen;
+  const _SuperAppGrid({required this.onOpen});
+
+  @override
+  Widget build(BuildContext context) {
+    final items = <_ServiceLite>[
+      _ServiceLite('gym', 'Gym', '—', '', Icons.fitness_center_rounded),
+      _ServiceLite('barbershop', 'Barbershop', '—', '', Icons.content_cut_rounded),
+      _ServiceLite('salon', 'Salon', '—', '', Icons.brush_rounded),
+      _ServiceLite('hostels', 'Hostels', '—', '', Icons.bed_rounded),
+      _ServiceLite('hotels', 'Hotels', '—', '', Icons.apartment_rounded),
+    ];
+    return _ResponsiveGrid(
+      items: items,
+      onOpen: onOpen,
+      childAspectRatio: 1.05,
+    );
+  }
+}
+
+/// Shared grid + tile styles
+class _ResponsiveGrid extends StatelessWidget {
+  final List<_ServiceLite> items;
+  final void Function(String key) onOpen;
+  final double childAspectRatio;
+  const _ResponsiveGrid({
+    required this.items,
+    required this.onOpen,
+    required this.childAspectRatio,
+  });
+
+  @override
+  Widget build(BuildContext context) {
     return LayoutBuilder(builder: (context, c) {
       final cross = c.maxWidth > 520 ? 4 : 2;
       return GridView.builder(
@@ -576,8 +616,7 @@ class _ServicesGridLite extends StatelessWidget {
           crossAxisCount: cross,
           crossAxisSpacing: 12,
           mainAxisSpacing: 12,
-          // ↓ slightly taller cards to fit larger images
-          childAspectRatio: 1.05,
+          childAspectRatio: childAspectRatio,
         ),
         itemBuilder: (_, i) => _ServiceLiteTile(
           item: items[i],
@@ -594,91 +633,107 @@ class _ServiceLite {
   _ServiceLite(this.keyId, this.title, this.eta, this.image, this.icon);
 }
 
-class _ServiceLiteTile extends StatelessWidget {
+class _ServiceLiteTile extends StatefulWidget {
   final _ServiceLite item;
   final VoidCallback onTap;
   const _ServiceLiteTile({required this.item, required this.onTap});
+  @override
+  State<_ServiceLiteTile> createState() => _ServiceLiteTileState();
+}
+
+class _ServiceLiteTileState extends State<_ServiceLiteTile> {
+  bool _pressed = false;
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: Ink(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppColors.brandOrangeSoft),
-          boxShadow: [
-            // soft orangish shadow for warmth
-            BoxShadow(
-              color: AppColors.brandOrange.withOpacity(0.08),
-              blurRadius: 12,
-              offset: const Offset(0, 6),
-            ),
-          ],
-        ),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(16),
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child:
-                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              // ETA tag
-              Row(
-                children: [
-                  if (item.eta != '—')
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: AppColors.brandOrangePale,
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: AppColors.brandOrangeSoft),
-                      ),
-                      child: Text(item.eta,
-                          style: const TextStyle(
-                              fontWeight: FontWeight.w800,
-                              color: AppColors.body,
-                              fontSize: 11)),
-                    ),
-                  const Spacer(),
-                  Icon(item.icon, size: 18, color: AppColors.title),
-                ],
+    return AnimatedScale(
+      scale: _pressed ? 0.98 : 1.0,
+      duration: const Duration(milliseconds: 120),
+      child: Material(
+        color: Colors.transparent,
+        child: Ink(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: AppColors.brandOrangeSoft),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.brandOrange.withOpacity(0.08),
+                blurRadius: 12,
+                offset: const Offset(0, 6),
               ),
-              const Spacer(),
-              // Illustration / image area — **bigger now**
-              Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(
-                    maxHeight: 72,
-                    maxWidth: 120,
-                  ),
-                  child: item.image.isEmpty
-                      ? Icon(
-                          item.icon,
-                          size: 58,
-                          color: AppColors.brandOrange,
-                        )
-                      : Image.asset(
-                          item.image,
-                          height: 72,
-                          fit: BoxFit.contain,
-                          errorBuilder: (_, __, ___) => Icon(
-                            item.icon,
-                            size: 58,
-                            color: AppColors.brandOrange,
+            ],
+          ),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(16),
+            onTap: widget.onTap,
+            onHighlightChanged: (v) => setState(() => _pressed = v),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // ETA tag + icon
+                  Row(
+                    children: [
+                      if (widget.item.eta != '—')
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: AppColors.brandOrangePale,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: AppColors.brandOrangeSoft),
+                          ),
+                          child: Text(
+                            widget.item.eta,
+                            style: const TextStyle(
+                                fontWeight: FontWeight.w800,
+                                color: AppColors.body,
+                                fontSize: 11),
                           ),
                         ),
-                ),
+                      const Spacer(),
+                      Icon(widget.item.icon, size: 18, color: AppColors.title),
+                    ],
+                  ),
+                  const Spacer(),
+                  // Illustration / image area — bigger
+                  Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(
+                        maxHeight: 72,
+                        maxWidth: 120,
+                      ),
+                      child: widget.item.image.isEmpty
+                          ? Icon(
+                              widget.item.icon,
+                              size: 58,
+                              color: AppColors.brandOrange,
+                            )
+                          : Image.asset(
+                              widget.item.image,
+                              height: 72,
+                              fit: BoxFit.contain,
+                              errorBuilder: (_, __, ___) => Icon(
+                                widget.item.icon,
+                                size: 58,
+                                color: AppColors.brandOrange,
+                              ),
+                            ),
+                    ),
+                  ),
+                  const Spacer(),
+                  Text(
+                    widget.item.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w900, color: AppColors.title),
+                  ),
+                ],
               ),
-              const Spacer(),
-              Text(item.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                      fontWeight: FontWeight.w900, color: AppColors.title)),
-            ]),
+            ),
           ),
         ),
       ),
@@ -686,7 +741,7 @@ class _ServiceLiteTile extends StatelessWidget {
   }
 }
 
-/// NEAR YOU — slidable carousel with slight orange border
+/// NEAR YOU — slidable carousel
 class _NearYouCarousel extends StatefulWidget {
   const _NearYouCarousel();
   @override
@@ -779,13 +834,13 @@ class _ProviderCard extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(fontWeight: FontWeight.w900)),
               const SizedBox(height: 4),
-              Row(children: const [
-                Icon(Icons.star, size: 16, color: Color(0xFFFFC107)),
-                SizedBox(width: 2),
+              Row(children: [
+                const Icon(Icons.star, size: 16, color: Color(0xFFFFC107)),
+                const SizedBox(width: 2),
+                Text(rating,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w700, color: AppColors.body)),
               ]),
-              Text(rating,
-                  style: const TextStyle(
-                      fontWeight: FontWeight.w700, color: AppColors.body)),
             ])),
         const SizedBox(width: 6),
         OutlinedButton(
@@ -869,7 +924,7 @@ class _TestimonialCard extends StatelessWidget {
   }
 }
 
-/// DEALS STRIP (orange gradient chips)
+/// DEALS STRIP
 class _DealsStrip extends StatelessWidget {
   const _DealsStrip();
   @override
@@ -1123,7 +1178,7 @@ class _Section extends StatelessWidget {
   }
 }
 
-/// Placeholder seller widget (kept)
+/// Placeholder seller widget
 class BecomeSellerWidget extends StatelessWidget {
   const BecomeSellerWidget({super.key});
   @override
@@ -1143,8 +1198,6 @@ class BecomeSellerWidget extends StatelessWidget {
           decoration: BoxDecoration(
               color: AppColors.brandOrangePale,
               borderRadius: BorderRadius.circular(10)),
-          child: const Icon(Icons.store_mall_directory_outlined,
-              color: AppColors.brandOrange),
         ),
         const SizedBox(width: 10),
         const Expanded(
