@@ -46,7 +46,7 @@ class MyApp extends StatelessWidget {
         '/Bottomnavbar': (context) => const Bottomnavbar(email: '',), // ✅ Registered route
         '/signup': (context) => const RegisterScreen(),
         '/login': (context) => const LoginScreen(),
-        '/cartpage': (context) => _authGuard(context, CartPage(cartService: CartService('http://127.0.0.1:3000/cart'))),
+        '/cartpage': (context) => _authGuard(context, CartPage(cartService: CartService('https://vero-backend.onrender.com/cart'))),
       },
     );
   }

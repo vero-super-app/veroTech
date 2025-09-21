@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:vero360_app/services/auth_service.dart';
+import 'package:vero360_app/toasthelper.dart';
 
 class AppColors {
   static const brandOrange = Color(0xFFFF8A00);
@@ -6,6 +8,8 @@ class AppColors {
   static const body = Color(0xFF6B6B6B);
   static const fieldFill = Color(0xFFF7F7F9);
 }
+
+enum VerifyMethod { email, phone }
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -17,15 +21,23 @@ class RegisterScreen extends StatefulWidget {
 class _RegisterScreenState extends State<RegisterScreen> {
   final _formKey = GlobalKey<FormState>();
 
-  final _name = TextEditingController();
-  final _email = TextEditingController();
-  final _phone = TextEditingController();
+  final _name     = TextEditingController();
+  final _email    = TextEditingController();
+  final _phone    = TextEditingController();
   final _password = TextEditingController();
-  final _confirm = TextEditingController();
+  final _confirm  = TextEditingController();
+  final _code     = TextEditingController();
 
   bool _obscure1 = true;
   bool _obscure2 = true;
   bool _agree = false;
+
+  VerifyMethod _method = VerifyMethod.email;
+  bool _otpSent = false;
+  bool _verifying = false;
+  bool _sending = false;
+  bool _registering = false;
+  bool _verified = false;
 
   @override
   void dispose() {
@@ -34,35 +46,102 @@ class _RegisterScreenState extends State<RegisterScreen> {
     _phone.dispose();
     _password.dispose();
     _confirm.dispose();
+    _code.dispose();
     super.dispose();
   }
 
-  void _submit() {
-    final valid = _formKey.currentState?.validate() ?? false;
-    if (!valid) return;
+  // --------- FLOW ACTIONS ---------
+  Future<void> _sendCode() async {
+    if (!(_formKey.currentState?.validate() ?? false)) return;
 
+    final identifier = _method == VerifyMethod.email
+        ? _email.text.trim()
+        : _phone.text.trim();
+
+    setState(() {
+      _sending = true;
+      _otpSent = false;
+      _verified = false;
+    });
+
+    try {
+      final ok = await AuthService().sendOtp(identifier, context);
+      if (ok) {
+        _otpSent = true;
+      }
+    } catch (e) {
+      ToastHelper.showCustomToast(context, ' code not sent: $e', isSuccess: false);
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  Future<void> _verifyAndRegister() async {
     if (!_agree) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please agree to the Terms & Privacy')),
+      ToastHelper.showCustomToast(
+        context,
+        'Please agree to the Terms & Privacy',
+        isSuccess: false,
       );
       return;
     }
 
-    FocusScope.of(context).unfocus();
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Creating your account...')),
-    );
+    // Full form validation (name/email/phone/password/confirm)
+    if (!(_formKey.currentState?.validate() ?? false)) return;
 
-    // TODO: Hook to your real registration flow
-    // Example payload:
-    // {
-    //   name: _name.text.trim(),
-    //   email: _email.text.trim(),
-    //   phone: _phone.text.trim(),
-    //   password: _password.text,
-    // }
+    final identifier = _method == VerifyMethod.email
+        ? _email.text.trim()
+        : _phone.text.trim();
+
+    if (!_otpSent) {
+      ToastHelper.showCustomToast(context, 'Please request a code first', isSuccess: false);
+      return;
+    }
+    if (_code.text.trim().isEmpty) {
+      ToastHelper.showCustomToast(context, 'Enter the verification code', isSuccess: false);
+      return;
+    }
+
+    // Step 1: verify code
+    setState(() => _verifying = true);
+    try {
+      final ok = await AuthService().verifyOtp(identifier, _code.text.trim(), context);
+      if (!ok) {
+        setState(() => _verified = false);
+        return;
+      }
+      setState(() => _verified = true);
+    } catch (e) {
+      ToastHelper.showCustomToast(context, ' Verification error: $e', isSuccess: false);
+      setState(() => _verified = false);
+      return;
+    } finally {
+      if (mounted) setState(() => _verifying = false);
+    }
+
+    // Step 2: register
+    setState(() => _registering = true);
+    try {
+      final ok = await AuthService().registerUser(
+        name: _name.text.trim(),
+        email: _email.text.trim(),
+        phone: _phone.text.trim(), // normalized inside service to +265
+        password: _password.text,
+        context: context,
+      );
+      if (ok && mounted) {
+        // You can also navigate to LoginScreen, if you prefer:
+        // Navigator.pop(context);
+        Navigator.of(context).maybePop();
+      }
+    } catch (e) {
+      ToastHelper.showCustomToast(context, ' Registration error: $e', isSuccess: false);
+    } finally {
+      if (mounted) setState(() => _registering = false);
+    }
   }
 
+  // --------- VALIDATORS ---------
   String? _validateEmail(String? v) {
     final s = v?.trim() ?? '';
     if (s.isEmpty) return 'Email is required';
@@ -70,12 +149,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
     return ok ? null : 'Enter a valid email';
   }
 
-  // 10 digits starting with 08 or 09
+  // Accept 10-digit local (08/09xxxxxxxx) OR E.164 +2658/9xxxxxxxx
   String? _validatePhone(String? v) {
     final s = v?.trim() ?? '';
     if (s.isEmpty) return 'Mobile number is required';
-    if (!RegExp(r'^(08|09)\d{8}$').hasMatch(s)) {
-      return 'Enter 10 digits starting with 08 or 09';
+    final digits = s.replaceAll(RegExp(r'\D'), '');
+    final isLocal = RegExp(r'^(08|09)\d{8}$').hasMatch(digits);
+    final isE164  = RegExp(r'^\+265[89]\d{8}$').hasMatch(s);
+    if (!isLocal && !isE164) {
+      return 'Use 08/09xxxxxxxx or +2659xxxxxxxx';
     }
     return null;
   }
@@ -120,6 +202,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final canSend = (_formKey.currentState?.validate() ?? false)
+        && (_method == VerifyMethod.email ? _email.text.trim().isNotEmpty : _phone.text.trim().isNotEmpty);
+
     return Scaffold(
       body: Stack(
         children: [
@@ -147,7 +232,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      // Avatar w/ gradient ring (Hero tag matches login for smooth transition)
+                      // Avatar / brand mark
                       Container(
                         padding: const EdgeInsets.all(3),
                         decoration: BoxDecoration(
@@ -166,17 +251,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         child: CircleAvatar(
                           radius: 44,
                           backgroundColor: Colors.white,
-                          child: Hero(
-                            tag: 'brand-mark',
-                            child: ClipOval(
-                              child: Image.asset(
-                                'assets/logo_mark.jpg',
-                                width: 72,
-                                height: 72,
-                                fit: BoxFit.cover,
-                                errorBuilder: (_, __, ___) =>
-                                    const Icon(Icons.eco, size: 42, color: AppColors.brandOrange),
-                              ),
+                          child: ClipOval(
+                            child: Image.asset(
+                              'assets/logo_mark.jpg',
+                              width: 72,
+                              height: 72,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) =>
+                                  const Icon(Icons.eco, size: 42, color: AppColors.brandOrange),
                             ),
                           ),
                         ),
@@ -204,7 +286,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       ),
                       const SizedBox(height: 22),
 
-                      // Glass card
+                      // Card
                       Container(
                         decoration: BoxDecoration(
                           color: Colors.white.withOpacity(0.9),
@@ -221,6 +303,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
                         child: Form(
                           key: _formKey,
+                          onChanged: () => setState(() {}),
                           child: Column(
                             children: [
                               // Name
@@ -232,10 +315,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                   hint: 'John Banda',
                                   icon: Icons.person_outline,
                                 ),
-                                validator: (v) =>
-                                    (v == null || v.trim().isEmpty) ? 'Name is required' : null,
+                                validator: (v) => (v == null || v.trim().isEmpty)
+                                    ? 'Name is required'
+                                    : null,
                               ),
                               const SizedBox(height: 14),
+
                               // Email
                               TextFormField(
                                 controller: _email,
@@ -249,6 +334,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                 validator: _validateEmail,
                               ),
                               const SizedBox(height: 14),
+
                               // Phone
                               TextFormField(
                                 controller: _phone,
@@ -256,12 +342,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                 textInputAction: TextInputAction.next,
                                 decoration: _fieldDecoration(
                                   label: 'Mobile number',
-                                  hint: '08xxxxxxxx or 09xxxxxxxx',
+                                  hint: '08xxxxxxxx, 09xxxxxxxx or +2659xxxxxxxx',
                                   icon: Icons.phone_iphone,
                                 ),
                                 validator: _validatePhone,
                               ),
                               const SizedBox(height: 14),
+
                               // Password
                               TextFormField(
                                 controller: _password,
@@ -280,12 +367,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                 validator: _validatePassword,
                               ),
                               const SizedBox(height: 14),
+
                               // Confirm
                               TextFormField(
                                 controller: _confirm,
                                 obscureText: _obscure2,
                                 textInputAction: TextInputAction.done,
-                                onFieldSubmitted: (_) => _submit(),
                                 decoration: _fieldDecoration(
                                   label: 'Confirm password',
                                   hint: '••••••••',
@@ -306,7 +393,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                     value: _agree,
                                     onChanged: (v) => setState(() => _agree = v ?? false),
                                     shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(4)),
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
                                     side: const BorderSide(color: Color(0xFFBDBDBD)),
                                   ),
                                   const Expanded(
@@ -321,91 +409,109 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                 ],
                               ),
 
+                              const SizedBox(height: 12),
+
+                              // Verify method selector
+                              Align(
+                                alignment: Alignment.centerLeft,
+                                child: Text(
+                                  'Verify via',
+                                  style: TextStyle(
+                                    color: Colors.black.withOpacity(0.7),
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
                               const SizedBox(height: 6),
-                              // Create account
+                              Row(
+                                children: [
+                                  ChoiceChip(
+                                    label: const Text('Email'),
+                                    selected: _method == VerifyMethod.email,
+                                    onSelected: (_) => setState(() {
+                                      _method = VerifyMethod.email;
+                                      _otpSent = false;
+                                      _verified = false;
+                                      _code.clear();
+                                    }),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  ChoiceChip(
+                                    label: const Text('Phone'),
+                                    selected: _method == VerifyMethod.phone,
+                                    onSelected: (_) => setState(() {
+                                      _method = VerifyMethod.phone;
+                                      _otpSent = false;
+                                      _verified = false;
+                                      _code.clear();
+                                    }),
+                                  ),
+                                ],
+                              ),
+
+                              const SizedBox(height: 12),
+
+                              // Send code + input code (only after sent)
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: OutlinedButton.icon(
+                                      onPressed: (_sending || _verifying || _registering || !canSend)
+                                          ? null
+                                          : _sendCode,
+                                      icon: const Icon(Icons.sms_outlined),
+                                      label: Text(_sending ? 'Sending…' : 'Send code'),
+                                      style: OutlinedButton.styleFrom(
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(12),
+                                        ),
+                                        padding: const EdgeInsets.symmetric(vertical: 12),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              if (_otpSent) ...[
+                                const SizedBox(height: 10),
+                                TextFormField(
+                                  controller: _code,
+                                  keyboardType: TextInputType.number,
+                                  decoration: _fieldDecoration(
+                                    label: 'Verification code',
+                                    hint: 'Enter the code',
+                                    icon: Icons.verified_outlined,
+                                  ),
+                                ),
+                              ],
+
+                              const SizedBox(height: 16),
+
+                              // Create account (Verify & Register)
                               SizedBox(
                                 width: double.infinity,
                                 height: 50,
                                 child: ElevatedButton(
-                                  onPressed: _submit,
+                                  onPressed: (_registering || _verifying) ? null : _verifyAndRegister,
                                   style: ElevatedButton.styleFrom(
                                     elevation: 0,
+                                    backgroundColor: AppColors.brandOrange,
                                     shape: RoundedRectangleBorder(
                                       borderRadius: BorderRadius.circular(14),
                                     ),
-                                    padding: EdgeInsets.zero,
                                   ),
-                                  child: Ink(
-                                    decoration: BoxDecoration(
-                                      gradient: const LinearGradient(
-                                        colors: [AppColors.brandOrange, Color(0xFFFFA53A)],
-                                      ),
-                                      borderRadius: BorderRadius.circular(14),
-                                    ),
-                                    child: const Center(
-                                      child: Text(
-                                        'Create account',
-                                        style: TextStyle(
-                                          color: Colors.white,
-                                          fontWeight: FontWeight.w800,
-                                          fontSize: 16,
-                                        ),
-                                      ),
+                                  child: Text(
+                                    _registering
+                                        ? 'Creating account…'
+                                        : _verifying
+                                            ? 'Verifying…'
+                                            : 'Verify & Create account',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 16,
                                     ),
                                   ),
                                 ),
-                              ),
-
-                              const SizedBox(height: 16),
-                              // Or + social
-                              Row(
-                                children: [
-                                  const Expanded(child: Divider(thickness: 1)),
-                                  const SizedBox(width: 10),
-                                  Text(
-                                    'or sign up with',
-                                    style: TextStyle(
-                                      color: Colors.black.withOpacity(0.55),
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 10),
-                                  const Expanded(child: Divider(thickness: 1)),
-                                ],
-                              ),
-                              const SizedBox(height: 12),
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: OutlinedButton.icon(
-                                      onPressed: () {},
-                                      icon: const Icon(Icons.mail_outline),
-                                      label: const Text('Google'),
-                                      style: OutlinedButton.styleFrom(
-                                        padding:
-                                            const EdgeInsets.symmetric(vertical: 12),
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(12),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: OutlinedButton.icon(
-                                      onPressed: () {},
-                                      icon: const Icon(Icons.apple),
-                                      label: const Text('Apple'),
-                                      style: OutlinedButton.styleFrom(
-                                        padding:
-                                            const EdgeInsets.symmetric(vertical: 12),
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(12),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ],
                               ),
                             ],
                           ),
@@ -419,11 +525,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         children: [
                           const Text(
                             "Already have an account?",
-                            style:
-                                TextStyle(color: AppColors.body, fontWeight: FontWeight.w600),
+                            style: TextStyle(color: AppColors.body, fontWeight: FontWeight.w600),
                           ),
                           TextButton(
-                            onPressed: () => Navigator.pop(context), // back to Login
+                            onPressed: () => Navigator.pop(context),
                             child: const Text(
                               'Sign in',
                               style: TextStyle(

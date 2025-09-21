@@ -1,11 +1,13 @@
 import 'dart:io';
+import 'dart:math';
 import 'package:fluttertoast/fluttertoast.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart'; // Import to format the date
+import 'package:intl/intl.dart';
+import 'package:vero360_app/toasthelper.dart'; // Import to format the date
 
 
 class MerchantApplicationForm extends StatelessWidget {
@@ -110,7 +112,7 @@ class BecomeDriverWidget extends StatelessWidget {
               },
               child: const Text("Apply Now"),
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.green, // Background color
+                backgroundColor: Colors.orange, // Background color
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(8),
                 ),
@@ -175,13 +177,15 @@ class _ApplyNowPageState extends State<ApplyNowPage> {
       );
 
       if (response.statusCode == 200 || response.statusCode == 201) {
-        _showToast('Application submitted successfully!');
+      ToastHelper.showCustomToast(context, "Merchant Application submitted successfully ✅", isSuccess: true);
         _clearForm();
       } else {
         _showToast('Failed to submit application: ${response.body}');
+          ToastHelper.showCustomToast(context, "Failed to submit application form", isSuccess: false);
       }
     } catch (error) {
-      _showToast('An error occurred: $error');
+       ToastHelper.showCustomToast(context, "Submission failed check your internet", isSuccess: false);
+     // _showToast('An error occurred: $error');
     }
   }
 
@@ -353,7 +357,8 @@ class _ApplyNowPageState extends State<ApplyNowPage> {
                     if (_formKey.currentState!.validate() && _termsAccepted) {
                       _submitApplication();
                     } else if (!_termsAccepted) {
-                      _showToast('You must accept the terms and conditions');
+                  
+                     ToastHelper.showCustomToast(context, "You must accept the terms and conditions", isSuccess: false);
                     }
                   },
                   style: ElevatedButton.styleFrom(
