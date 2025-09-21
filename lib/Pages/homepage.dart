@@ -22,8 +22,6 @@ class AppColors {
   static const chip = Color(0xFFF9F5EF);
   static const card = Color(0xFFFFFFFF);
   static const bgBottom = Color(0xFFFFFFFF);
-<<<<<<< HEAD
-=======
 
   static const taxiGrad = [Color(0xFF2EC5CE), Color(0xFF8DE9D9)];
   static const hostelGrad = [Color(0xFF845EF7), Color(0xFFA78BFA)];
@@ -34,7 +32,6 @@ class AppColors {
   static const fxGrad = [Color(0xFF94A3B8), Color(0xFFCBD5E1)];
   static const eduGrad = [Color(0xFFFF8A00), Color(0xFFFFC38A)];
   static const moreGrad = [Color(0xFF111827), Color(0xFF374151)];
->>>>>>> 78332b4430fd1dc75e5f520cbe5953d93a129466
 }
 
 class Vero360Homepage extends StatefulWidget {
@@ -47,21 +44,10 @@ class Vero360Homepage extends StatefulWidget {
 
 String _firstNameFromEmail(String? e) {
   if (e == null) return 'there';
-<<<<<<< HEAD
   final t = e.trim();
   if (t.isEmpty) return 'there';
   final base = t.contains('@') ? t.split('@').first : t;
   return base.isEmpty ? 'there' : (base[0].toUpperCase() + base.substring(1));
-=======
-  final trimmed = e.trim();
-  if (trimmed.isEmpty) return 'there';
-  // if phone-like, just return 'there'
-  if (RegExp(r'^\+?\d+$').hasMatch(trimmed)) return 'there';
-  final at = trimmed.indexOf('@');
-  final base = at == -1 ? trimmed : trimmed.substring(0, at);
-  if (base.isEmpty) return 'there';
-  return base[0].toUpperCase() + base.substring(1);
->>>>>>> 78332b4430fd1dc75e5f520cbe5953d93a129466
 }
 
 class _Vero360HomepageState extends State<Vero360Homepage> {
@@ -132,7 +118,7 @@ class _Vero360HomepageState extends State<Vero360Homepage> {
                 padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
                 child: Column(
                   children: [
-                    _BrandBar(appName: 'Vero360', logoPath: 'assets/logo_mark.jpg'),
+                    const _BrandBar(appName: 'Vero360', logoPath: 'assets/logo_mark.jpg'),
                     const SizedBox(height: 12),
                     _TopSection(
                       animateIn: _animateIn,
@@ -144,11 +130,8 @@ class _Vero360HomepageState extends State<Vero360Homepage> {
                 ),
               ),
             ),
-<<<<<<< HEAD
-            // Promo carousel
-=======
 
->>>>>>> 78332b4430fd1dc75e5f520cbe5953d93a129466
+            // Promos
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
@@ -163,17 +146,11 @@ class _Vero360HomepageState extends State<Vero360Homepage> {
             ),
             const SliverToBoxAdapter(child: SizedBox(height: 10)),
 
-<<<<<<< HEAD
             // Quick strip
             const SliverToBoxAdapter(child: _QuickStrip()),
             const SliverToBoxAdapter(child: SizedBox(height: 12)),
 
-            // Core Services
-=======
-            const SliverToBoxAdapter(child: _QuickStrip()),
-            const SliverToBoxAdapter(child: SizedBox(height: 12)),
-
->>>>>>> 78332b4430fd1dc75e5f520cbe5953d93a129466
+            // Services
             SliverToBoxAdapter(
               child: _Section(
                 title: 'Services',
@@ -189,29 +166,31 @@ class _Vero360HomepageState extends State<Vero360Homepage> {
                 ),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: _ServicesGridLite(onOpen: _openService),
+                  child: _ServicesGridLite(
+                    onOpen: (key) => _Vero360HomepageState._openServiceStatic(context, key),
+                  ),
                 ),
               ),
             ),
 
-<<<<<<< HEAD
             // Super App additions (Gym, Barbershop, Salon, Hostels, Hotels)
             SliverToBoxAdapter(
               child: _Section(
-                title: 'Super App',
+                title: 'Vero360 App',
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: _SuperAppGrid(onOpen: _openService),
+                  child: _SuperAppGrid(
+                    onOpen: (key) => _Vero360HomepageState._openServiceStatic(context, key),
+                  ),
                 ),
               ),
             ),
 
             // Near you
-=======
->>>>>>> 78332b4430fd1dc75e5f520cbe5953d93a129466
             const SliverToBoxAdapter(child: _NearYouCarousel()),
             const SliverToBoxAdapter(child: SizedBox(height: 8)),
 
+            // Testimonials
             const SliverToBoxAdapter(child: _Testimonials()),
             const SliverToBoxAdapter(child: SizedBox(height: 6)),
 
@@ -219,13 +198,13 @@ class _Vero360HomepageState extends State<Vero360Homepage> {
             const SliverToBoxAdapter(child: _DealsStrip()),
             const SliverToBoxAdapter(child: SizedBox(height: 12)),
 
+            // Latest arrivals + CTA
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
                 child: _LatestArrivals(),
               ),
             ),
-
             const SliverToBoxAdapter(child: _CTA()),
             const SliverToBoxAdapter(child: SizedBox(height: 28)),
           ],
@@ -240,46 +219,77 @@ class _Vero360HomepageState extends State<Vero360Homepage> {
     );
   }
 
-  void _openService(String key) {
+  void _openService(String key) => _openServiceStatic(context, key);
+
+  // Static helper so we can reference it from const children
+  static void _openServiceStatic(BuildContext context, String key) {
     Widget page;
     switch (key) {
       // Core services
-      case 'food': page = FoodPage(); break;
-<<<<<<< HEAD
-      case 'grocery': page = FoodPage(); break; // or your grocery page
-=======
-      case 'grocery': page = FoodPage(); break;
->>>>>>> 78332b4430fd1dc75e5f520cbe5953d93a129466
-      case 'courier': page = const UtilityPage(); break;
-      case 'taxi': page = const TaxiPage(); break;
-      case 'send_money': page = const MobilemoneyPage(); break;
-      case 'home_cleaning': page = const UtilityPage(); break;
-      case 'doctor': page = const EducationPage(); break; // kept if needed
-      case 'hospital': page = const UtilityPage(); break; // placeholder
+      case 'food':
+        page = FoodPage();
+        break;
+      case 'grocery':
+        page = FoodPage(); // placeholder
+        break;
+      case 'courier':
+        page = const UtilityPage();
+        break;
+      case 'taxi':
+        page = const TaxiPage();
+        break;
+      case 'send_money':
+        page = const MobilemoneyPage();
+        break;
+      case 'home_cleaning':
+        page = const UtilityPage();
+        break;
+      case 'doctor':
+        page = const EducationPage(); // kept if needed
+        break;
+      case 'hospital':
+        page = const UtilityPage(); // placeholder
+        break;
 
       // Super App routes
-      case 'gym': page = const MorePage(); break;
-      case 'barbershop': page = const MorePage(); break;
-      case 'salon': page = const MorePage(); break;
-      case 'hostels': page = const AccomodationPage(); break;
-      case 'hotels': page = const AccomodationPage(); break;
+      case 'gym':
+        page = const MorePage();
+        break;
+      case 'barbershop':
+        page = const MorePage();
+        break;
+      case 'salon':
+        page = const MorePage();
+        break;
+      case 'hostels':
+        page = const AccomodationPage();
+        break;
+      case 'hotels':
+        page = const AccomodationPage();
+        break;
 
       // Extras
-      case 'accommodation': page = const AccomodationPage(); break;
-      case 'mobile_money': page = const MobilemoneyPage(); break;
-      case 'fx': page = const ExchangeRateScreen(); break;
-      case 'education': page = const EducationPage(); break;
+      case 'accommodation':
+        page = const AccomodationPage();
+        break;
+      case 'mobile_money':
+        page = const MobilemoneyPage();
+        break;
+      case 'fx':
+        page = const ExchangeRateScreen();
+        break;
+      case 'education':
+        page = const EducationPage();
+        break;
 
-      default: page = const MorePage();
+      default:
+        page = const MorePage();
     }
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => page));
   }
 }
 
 /// ─────────────────────────────────────────────────────────────────
-<<<<<<< HEAD
-/// TOP SECTION
-=======
 /// BRAND BAR (logo + name + actions)
 /// ─────────────────────────────────────────────────────────────────
 class _BrandBar extends StatelessWidget {
@@ -342,10 +352,10 @@ class _BrandBar extends StatelessWidget {
           tooltip: 'Notifications',
         ),
         const SizedBox(width: 4),
-        CircleAvatar(
+        const CircleAvatar(
           radius: 14,
           backgroundColor: AppColors.brandOrangePale,
-          child: const Icon(Icons.person_outline, size: 18, color: AppColors.brandOrange),
+          child: Icon(Icons.person_outline, size: 18, color: AppColors.brandOrange),
         ),
       ],
     );
@@ -354,7 +364,6 @@ class _BrandBar extends StatelessWidget {
 
 /// ─────────────────────────────────────────────────────────────────
 /// TOP SECTION (greeting + search pill + Pay chip)
->>>>>>> 78332b4430fd1dc75e5f520cbe5953d93a129466
 /// ─────────────────────────────────────────────────────────────────
 class _TopSection extends StatelessWidget {
   final bool animateIn;
@@ -493,10 +502,7 @@ class _Promo {
   });
 }
 
-<<<<<<< HEAD
-=======
 /// Promo carousel
->>>>>>> 78332b4430fd1dc75e5f520cbe5953d93a129466
 class _PromoCarousel extends StatelessWidget {
   final List<_Promo> promos;
   final ValueChanged<int> onIndex;
@@ -564,7 +570,6 @@ class _PromoCarousel extends StatelessWidget {
                             fontSize: 18,
                           )),
                       const SizedBox(height: 2),
-                      const SizedBox(height: 2),
                       Text(p.subtitle,
                           style: const TextStyle(
                             color: AppColors.title,
@@ -629,11 +634,7 @@ class _Dots extends StatelessWidget {
   }
 }
 
-<<<<<<< HEAD
-/// Quick strip
-=======
-/// Quick chips (keep design)
->>>>>>> 78332b4430fd1dc75e5f520cbe5953d93a129466
+/// Quick chips strip
 class _QuickStrip extends StatelessWidget {
   const _QuickStrip();
   @override
@@ -669,11 +670,6 @@ class _QuickStrip extends StatelessWidget {
   }
 }
 
-<<<<<<< HEAD
-/// SERVICES — compact tiles (removed Medicine, added Hospital)
-=======
-/// SERVICES — icons/keys aligned with routes
->>>>>>> 78332b4430fd1dc75e5f520cbe5953d93a129466
 class _ServicesGridLite extends StatelessWidget {
   final void Function(String key) onOpen;
   const _ServicesGridLite({required this.onOpen});
@@ -695,14 +691,10 @@ class _ServicesGridLite extends StatelessWidget {
           Icons.currency_exchange_rounded),
       _ServiceLite('home_cleaning', 'Home Cleaning', '18 min', '',
           Icons.cleaning_services_rounded),
-<<<<<<< HEAD
-      // removed: medicine
+
+      // kept Hospital + Doctor; Medicine removed
       _ServiceLite('hospital', 'Hospital', '10 min', '', Icons.local_hospital_rounded),
       _ServiceLite('doctor', 'Doctor', '10 min', '', Icons.medical_services_rounded),
-=======
-      _ServiceLite('medicine', 'Medicine', '20 min', '',
-          Icons.medication_rounded),
->>>>>>> 78332b4430fd1dc75e5f520cbe5953d93a129466
     ];
 
     return _ResponsiveGrid(
@@ -758,11 +750,7 @@ class _ResponsiveGrid extends StatelessWidget {
           crossAxisCount: cross,
           crossAxisSpacing: 12,
           mainAxisSpacing: 12,
-<<<<<<< HEAD
           childAspectRatio: childAspectRatio,
-=======
-          childAspectRatio: 1.05,
->>>>>>> 78332b4430fd1dc75e5f520cbe5953d93a129466
         ),
         itemBuilder: (_, i) => _ServiceLiteTile(
           item: items[i],
@@ -792,7 +780,7 @@ class _ServiceLiteTileState extends State<_ServiceLiteTile> {
 
   @override
   Widget build(BuildContext context) {
-<<<<<<< HEAD
+    final item = widget.item;
     return AnimatedScale(
       scale: _pressed ? 0.98 : 1.0,
       duration: const Duration(milliseconds: 120),
@@ -823,7 +811,7 @@ class _ServiceLiteTileState extends State<_ServiceLiteTile> {
                   // ETA tag + icon
                   Row(
                     children: [
-                      if (widget.item.eta != '—')
+                      if (item.eta != '—')
                         Container(
                           padding: const EdgeInsets.symmetric(
                               horizontal: 8, vertical: 4),
@@ -833,81 +821,15 @@ class _ServiceLiteTileState extends State<_ServiceLiteTile> {
                             border: Border.all(color: AppColors.brandOrangeSoft),
                           ),
                           child: Text(
-                            widget.item.eta,
+                            item.eta,
                             style: const TextStyle(
                                 fontWeight: FontWeight.w800,
                                 color: AppColors.body,
                                 fontSize: 11),
-=======
-    return Material(
-      color: Colors.transparent,
-      child: Ink(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppColors.brandOrangeSoft),
-          boxShadow: [
-            BoxShadow(
-              color: AppColors.brandOrange.withOpacity(0.08),
-              blurRadius: 12,
-              offset: const Offset(0, 6),
-            ),
-          ],
-        ),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(16),
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child:
-                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Row(
-                children: [
-                  if (item.eta != '—')
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: AppColors.brandOrangePale,
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: AppColors.brandOrangeSoft),
-                      ),
-                      child: Text(item.eta,
-                          style: const TextStyle(
-                              fontWeight: FontWeight.w800,
-                              color: AppColors.body,
-                              fontSize: 11)),
-                    ),
-                  const Spacer(),
-                  Icon(item.icon, size: 18, color: AppColors.title),
-                ],
-              ),
-              const Spacer(),
-              Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(
-                    maxHeight: 72,
-                    maxWidth: 120,
-                  ),
-                  child: item.image.isEmpty
-                      ? Icon(
-                          item.icon,
-                          size: 58,
-                          color: AppColors.brandOrange,
-                        )
-                      : Image.asset(
-                          item.image,
-                          height: 72,
-                          fit: BoxFit.contain,
-                          errorBuilder: (_, __, ___) => Icon(
-                            item.icon,
-                            size: 58,
-                            color: AppColors.brandOrange,
->>>>>>> 78332b4430fd1dc75e5f520cbe5953d93a129466
                           ),
                         ),
                       const Spacer(),
-                      Icon(widget.item.icon, size: 18, color: AppColors.title),
+                      Icon(item.icon, size: 18, color: AppColors.title),
                     ],
                   ),
                   const Spacer(),
@@ -918,18 +840,18 @@ class _ServiceLiteTileState extends State<_ServiceLiteTile> {
                         maxHeight: 72,
                         maxWidth: 120,
                       ),
-                      child: widget.item.image.isEmpty
+                      child: item.image.isEmpty
                           ? Icon(
-                              widget.item.icon,
+                              item.icon,
                               size: 58,
                               color: AppColors.brandOrange,
                             )
                           : Image.asset(
-                              widget.item.image,
+                              item.image,
                               height: 72,
                               fit: BoxFit.contain,
                               errorBuilder: (_, __, ___) => Icon(
-                                widget.item.icon,
+                                item.icon,
                                 size: 58,
                                 color: AppColors.brandOrange,
                               ),
@@ -938,7 +860,7 @@ class _ServiceLiteTileState extends State<_ServiceLiteTile> {
                   ),
                   const Spacer(),
                   Text(
-                    widget.item.title,
+                    item.title,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
@@ -954,11 +876,9 @@ class _ServiceLiteTileState extends State<_ServiceLiteTile> {
   }
 }
 
-<<<<<<< HEAD
+/// ─────────────────────────────────────────────────────────────────
 /// NEAR YOU — slidable carousel
-=======
-/// NEAR YOU
->>>>>>> 78332b4430fd1dc75e5f520cbe5953d93a129466
+/// ─────────────────────────────────────────────────────────────────
 class _NearYouCarousel extends StatefulWidget {
   const _NearYouCarousel();
   @override
@@ -1161,7 +1081,7 @@ class _DealsStrip extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 12),
           decoration: BoxDecoration(
             gradient: const LinearGradient(
-              colors: [Color(0xFFFFE8CC), Colors.white],
+              colors: [Color(0xFFFFE2BF), Colors.white],
             ),
             border: Border.all(color: AppColors.brandOrangeSoft),
             borderRadius: BorderRadius.circular(14),
