@@ -70,7 +70,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         _otpSent = true;
       }
     } catch (e) {
-      ToastHelper.showCustomToast(context, ' code not sent: $e', isSuccess: false);
+      ToastHelper.showCustomToast(context, ' code not sent: $e', isSuccess: false, errorMessage: '');
     } finally {
       if (mounted) setState(() => _sending = false);
     }
@@ -81,7 +81,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       ToastHelper.showCustomToast(
         context,
         'Please agree to the Terms & Privacy',
-        isSuccess: false,
+        isSuccess: false, errorMessage: '',
       );
       return;
     }
@@ -94,11 +94,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
         : _phone.text.trim();
 
     if (!_otpSent) {
-      ToastHelper.showCustomToast(context, 'Please request a code first', isSuccess: false);
+      ToastHelper.showCustomToast(context, 'Please request a code first', isSuccess: false, errorMessage: '');
       return;
     }
     if (_code.text.trim().isEmpty) {
-      ToastHelper.showCustomToast(context, 'Enter the verification code', isSuccess: false);
+      ToastHelper.showCustomToast(context, 'Enter the verification code', isSuccess: false, errorMessage: '');
       return;
     }
 
@@ -112,7 +112,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       }
       setState(() => _verified = true);
     } catch (e) {
-      ToastHelper.showCustomToast(context, ' Verification error: $e', isSuccess: false);
+      ToastHelper.showCustomToast(context, ' Verification error: $e', isSuccess: false, errorMessage: '');
       setState(() => _verified = false);
       return;
     } finally {
@@ -135,7 +135,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         Navigator.of(context).maybePop();
       }
     } catch (e) {
-      ToastHelper.showCustomToast(context, ' Registration error: $e', isSuccess: false);
+      ToastHelper.showCustomToast(context, ' Registration error: $e', isSuccess: false, errorMessage: '');
     } finally {
       if (mounted) setState(() => _registering = false);
     }

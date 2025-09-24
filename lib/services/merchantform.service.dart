@@ -25,7 +25,7 @@ class SellersApplicationFormService {
         ToastHelper.showCustomToast(
           context,
           "Merchant Application submitted successfully ✅",
-          isSuccess: true,
+          isSuccess: true, errorMessage: '',
         );
         return true;
       } else {
@@ -33,7 +33,7 @@ class SellersApplicationFormService {
         ToastHelper.showCustomToast(
           context,
           "Failed to submit form ❌: $body",
-          isSuccess: false,
+          isSuccess: false, errorMessage: '',
         );
         throw Exception(
           'Failed: ${response.statusCode} - ${response.reasonPhrase}',
@@ -43,21 +43,21 @@ class SellersApplicationFormService {
       ToastHelper.showCustomToast(
         context,
         'Client error ❌: $e',
-        isSuccess: false,
+        isSuccess: false, errorMessage: '',
       );
       throw Exception('Client-side issue: $e');
     } on TimeoutException {
       ToastHelper.showCustomToast(
         context,
         'Request timed out ⏳. Please try again.',
-        isSuccess: false,
+        isSuccess: false, errorMessage: '',
       );
       throw Exception('Timeout');
     } catch (e) {
       ToastHelper.showCustomToast(
         context,
         'Unexpected error ❌: $e',
-        isSuccess: false,
+        isSuccess: false, errorMessage: '',
       );
       throw Exception('Unexpected: $e');
     }

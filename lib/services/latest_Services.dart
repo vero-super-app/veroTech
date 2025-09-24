@@ -1,43 +1,54 @@
+// lib/services/hostel_service.dart
 import 'dart:async';
 import 'dart:convert';
+import 'package:flutter/foundation.dart'
+    show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:http/http.dart' as http;
-import '../models/Latest_model.dart';
+import 'package:vero360_app/models/Latest_model.dart';
+
 
 class LatestArrivalServices {
-  final String _baseUrl = 'https://vero-backend.onrender.com/latestarrivals';
+  String _localHost() {
+    if (kIsWeb) return 'localhost'; // Flutter web
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      return '10.0.2.2'; // Android emulator -> host machine
+    }
+    return '127.0.0.1'; // iOS sim / desktop
+  }
+
+  Uri _allUri() => Uri.parse('http://${_localHost()}:3000/latestarrivals');
 
   Future<List<LatestArrivalModels>> fetchLatestArrivals() async {
     try {
-      final uri = Uri.parse(_baseUrl);
+      final response = await http
+          .get(_allUri(), headers: {'Accept': 'application/json'})
+          .timeout(const Duration(seconds: 20));
 
-      // Make the HTTP GET request with a timeout to handle network delays
-      final response = await http.get(uri).timeout(const Duration(seconds: 10));
-
-      if (response.statusCode == 200) {
-        List<dynamic> data = jsonDecode(response.body);
-
-        // Map each item into LatestArrivalModels and return as a list
-        return data
-            .map((json) =>
-                LatestArrivalModels.fromJson(json as Map<String, dynamic>))
-            .toList();
-      } else {
-        // Log the response status for debugging
-        print('Failed to fetch latest arrivals: ${response.statusCode}');
-        throw Exception('Failed to fetch latest arrivals: ${response.statusCode} - ${response.reasonPhrase}');
+      if (response.statusCode != 200) {
+        throw Exception(
+          'GET /latestarrivals failed: ${response.statusCode} ${response.body}',
+        );
       }
-    } on http.ClientException catch (e) {
-      // Handle client-side errors (e.g., network issues)
-      print('Client error: $e');
-      throw Exception('Error fetching latest arrivals due to client-side issue');
+
+      final decoded = jsonDecode(response.body);
+
+      // Accept either `[{...}, ...]` or `{"data":[{...}]}`.
+      final List list = decoded is List
+          ? decoded
+          : (decoded is Map && decoded['data'] is List)
+              ? decoded['data'] as List
+              : <dynamic>[];
+
+      return list
+          .whereType<Map<String, dynamic>>()
+          .map<LatestArrivalModels>((m) => LatestArrivalModels.fromJson(m))
+          .toList();
     } on TimeoutException {
-      // Handle timeout errors
-      print('Error: Request timed out');
-      throw Exception('Request timed out. Please try again later.');
+      throw Exception('Request timed out. Please try again.');
+    } on http.ClientException catch (e) {
+      throw Exception('Network error: $e');
     } catch (e) {
-      // Handle all other exceptions
-      print('Unexpected error: $e');
-      throw Exception('An unexpected error occurred while fetching latest arrivals: $e');
+      throw Exception('Unexpected error: $e');
     }
   }
 }

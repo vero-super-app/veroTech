@@ -24,7 +24,7 @@ class AuthService {
       ToastHelper.showCustomToast(
         context,
         'Enter a valid email or phone (08/09… or +265…)',
-        isSuccess: false,
+        isSuccess: false, errorMessage: '',
       );
       return null;
     }
@@ -56,7 +56,7 @@ class AuthService {
       final token = data['access_token'] ?? data['token'];
       final user  = Map<String, dynamic>.from(data['user'] ?? {});
       if (token == null) {
-        ToastHelper.showCustomToast(context, ' Login failed: missing token', isSuccess: false);
+        ToastHelper.showCustomToast(context, ' Login failed: missing token', isSuccess: false, errorMessage: '');
         return null;
       }
 
@@ -65,13 +65,13 @@ class AuthService {
       final displayId = user['email']?.toString() ?? user['phone']?.toString() ?? normalized;
       await prefs.setString('email', displayId);
 
-      ToastHelper.showCustomToast(context, '✅ Logged in successfully', isSuccess: true);
+      ToastHelper.showCustomToast(context, '✅ Logged in successfully', isSuccess: true, errorMessage: '');
       return {'token': token, 'user': user};
     } else {
       ToastHelper.showCustomToast(
         context,
         ' Login failed: ${_prettyError(res.body)}',
-        isSuccess: false,
+        isSuccess: false, errorMessage: '',
       );
       return null;
     }
@@ -84,7 +84,7 @@ class AuthService {
       ToastHelper.showCustomToast(
         context,
         'Enter a valid email or phone (08/09… or +265…)',
-        isSuccess: false,
+        isSuccess: false, errorMessage: '',
       );
       return false;
     }
@@ -108,13 +108,13 @@ class AuthService {
     }
 
     if (res.statusCode == 200 || res.statusCode == 201) {
-      ToastHelper.showCustomToast(context, '📨 Verification code sent', isSuccess: true);
+      ToastHelper.showCustomToast(context, '📨 Verification code sent', isSuccess: true, errorMessage: '');
       return true;
     } else {
       ToastHelper.showCustomToast(
         context,
         'Couldn’t send code: ${_prettyError(res.body)}',
-        isSuccess: false,
+        isSuccess: false, errorMessage: '',
       );
       return false;
     }
@@ -144,13 +144,13 @@ class AuthService {
     }
 
     if (res.statusCode == 200 || res.statusCode == 201) {
-      ToastHelper.showCustomToast(context, '✅ Code verified', isSuccess: true);
+      ToastHelper.showCustomToast(context, '✅ Code verified', isSuccess: true, errorMessage: '');
       return true;
     } else {
       ToastHelper.showCustomToast(
         context,
         'Verification failed: ${_prettyError(res.body)}',
-        isSuccess: false,
+        isSuccess: false, errorMessage: '',
       );
       return false;
     }
@@ -179,13 +179,13 @@ class AuthService {
     );
 
     if (res.statusCode == 201 || res.statusCode == 200) {
-      ToastHelper.showCustomToast(context, '🎉 Account created successfully', isSuccess: true);
+      ToastHelper.showCustomToast(context, '🎉 Account created successfully', isSuccess: true, errorMessage: '');
       return true;
     } else {
       ToastHelper.showCustomToast(
         context,
         ' Registration failed: ${_prettyError(res.body)}',
-        isSuccess: false,
+        isSuccess: false, errorMessage: '',
       );
       return false;
     }

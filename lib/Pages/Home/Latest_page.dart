@@ -1,6 +1,7 @@
 
 import 'package:flutter/material.dart';
-import '../../models/Latest_model.dart';
+import 'package:vero360_app/models/Latest_model.dart';
+
 import '../../services/latest_Services.dart';
 
 class LatestArrivalPage extends StatefulWidget {
@@ -103,7 +104,7 @@ class _LatestArrivalPageState extends State<LatestArrivalPage> {
                         ClipRRect(
                           borderRadius: BorderRadius.circular(15),
                           child: Image.network(
-                            item.image,
+                            item.imageUrl,
                             height: 150,
                             width: double.infinity,
                             fit: BoxFit.cover,

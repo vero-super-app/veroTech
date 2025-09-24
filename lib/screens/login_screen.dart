@@ -68,7 +68,7 @@ class _LoginScreenState extends State<LoginScreen> {
         } else {
           final code = _otpCtrl.text.trim();
           if (code.isEmpty || code.length < 4) {
-            ToastHelper.showCustomToast(context, 'Enter the OTP code', isSuccess: false);
+            ToastHelper.showCustomToast(context, 'Enter the OTP code', isSuccess: false, errorMessage: '');
             return;
           }
           // verifyOtp returns bool
@@ -83,7 +83,7 @@ class _LoginScreenState extends State<LoginScreen> {
         }
       }
     } catch (e) {
-      ToastHelper.showCustomToast(context, ' Error: $e', isSuccess: false);
+      ToastHelper.showCustomToast(context, ' Error: $e', isSuccess: false, errorMessage: '');
     } finally {
       if (mounted) setState(() => _loading = false);
     }

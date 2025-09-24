@@ -177,14 +177,14 @@ class _ApplyNowPageState extends State<ApplyNowPage> {
       );
 
       if (response.statusCode == 200 || response.statusCode == 201) {
-      ToastHelper.showCustomToast(context, "Merchant Application submitted successfully ✅", isSuccess: true);
+      ToastHelper.showCustomToast(context, "Merchant Application submitted successfully ✅", isSuccess: true, errorMessage: '');
         _clearForm();
       } else {
         _showToast('Failed to submit application: ${response.body}');
-          ToastHelper.showCustomToast(context, "Failed to submit application form", isSuccess: false);
+          ToastHelper.showCustomToast(context, "Failed to submit application form", isSuccess: false, errorMessage: '');
       }
     } catch (error) {
-       ToastHelper.showCustomToast(context, "Submission failed check your internet", isSuccess: false);
+       ToastHelper.showCustomToast(context, "Submission failed check your internet", isSuccess: false, errorMessage: '');
      // _showToast('An error occurred: $error');
     }
   }
@@ -358,7 +358,7 @@ class _ApplyNowPageState extends State<ApplyNowPage> {
                       _submitApplication();
                     } else if (!_termsAccepted) {
                   
-                     ToastHelper.showCustomToast(context, "You must accept the terms and conditions", isSuccess: false);
+                     ToastHelper.showCustomToast(context, "You must accept the terms and conditions", isSuccess: false, errorMessage: '');
                     }
                   },
                   style: ElevatedButton.styleFrom(
