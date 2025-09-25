@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
+import 'package:vero360_app/Pages/QRcode.dart';
 
 /* Inline pages displayed in bottom sheets (stay on same Profile screen) */
 import 'package:vero360_app/Pages/ToRefund.dart';
@@ -10,6 +11,7 @@ import 'package:vero360_app/Pages/Topay.dart';
 import 'package:vero360_app/Pages/Toreceive.dart';
 import 'package:vero360_app/Pages/Toship.dart';
 import 'package:vero360_app/Pages/address.dart';
+import 'package:vero360_app/Pages/changepassword.dart';
 import 'package:vero360_app/models/Latest_model.dart';
 
 import 'package:vero360_app/screens/login_screen.dart';
@@ -407,12 +409,15 @@ class _ProfilePageState extends State<ProfilePage> {
 
   Widget _otherDetailsGrid() {
     final items = <_DetailItem>[
-      _DetailItem('My QR Code', Icons.qr_code_2, () {}),
+      _DetailItem('My QR Code', Icons.qr_code_2, () {
+         _openBottomSheet(const ProfileQrPage());
+      }),
       _DetailItem('My Address', Icons.location_on, () {
         _openBottomSheet(const AddressPage());
       }),
-      _DetailItem('Password', Icons.lock_outline, () {
-        // TODO: open password change sheet
+      _DetailItem('Change Password', Icons.lock_outline, () {
+        // TODO: open password change sheet 
+          _openBottomSheet(const ChangePasswordPage());  
       }),
       _DetailItem('Notification', Icons.notifications_none, () {}),
       _DetailItem('Language', Icons.language, () {}),

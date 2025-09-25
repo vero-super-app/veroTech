@@ -1,46 +1,56 @@
+// android/app/build.gradle.kts
 plugins {
     id("com.android.application")
-    id("kotlin-android")
-    // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
+    id("org.jetbrains.kotlin.android")
+    // Flutter plugin must come after Android & Kotlin
     id("dev.flutter.flutter-gradle-plugin")
 }
 
 android {
     namespace = "com.example.verotech_app"
 
-    // ✅ Hard-coded versions (no flutter.* indirection)
-    compileSdk = 35
-    ndkVersion = "27.0.12077973"
-
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
-    }
-
-    kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_11.toString()
-    }
+    // Match your plugins’ requirement
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.example.verotech_app"
-
-        // ✅ Raise mins to satisfy Firebase + plugins
         minSdk = flutter.minSdkVersion
-        targetSdk = 34
+        targetSdk = 36
 
-        // keep using Flutter-managed versionCode/Name (safe to leave)
+        // Keep Flutter-managed versions
         versionCode = flutter.versionCode
         versionName = flutter.versionName
-
-        // Optional: enable if you ever hit 65K refs; not required for minSdk 23
-        // multiDexEnabled = true
     }
 
     buildTypes {
+        debug {
+            // 🔴 Never shrink resources in debug
+            isMinifyEnabled = false
+            isShrinkResources = false
+        }
         release {
-            // Signing with debug key so `flutter run --release` works
+            // ✅ Required pair: enable both together
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+
+            // For convenience so `flutter run --release` works without a keystore
             signingConfig = signingConfigs.getByName("debug")
         }
+    }
+
+    // AGP 8.x uses Java 17
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+    kotlinOptions { jvmTarget = "17" }
+
+    packaging {
+        resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
     }
 }
 
