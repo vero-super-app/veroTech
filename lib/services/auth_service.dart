@@ -1,17 +1,29 @@
+// lib/services/auth_service.dart
 import 'dart:convert';
+import 'package:flutter/widgets.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:flutter/widgets.dart';
+import 'package:vero360_app/services/api_config.dart';
 import 'package:vero360_app/toasthelper.dart';
 
 class AuthService {
-  final String baseUrl = 'https://vero-backend.onrender.com';
+  // ===== Endpoints =====
+  static const _loginPath     = '/auth/login';
+  static const _otpSendPath   = '/auth/otp/send';
+  static const _otpVerifyPath = '/auth/otp/verify';
+  static const _registerPath  = '/auth/register';
 
-  // Adjust if your backend routes differ
-  static const _loginPath      = '/auth/login';
-  static const _otpSendPath    = '/auth/otp/send';
-  static const _otpVerifyPath  = '/auth/otp/verify';
-  static const _registerPath   = '/auth/register';
+  // Read the single source of truth for your API base
+  Future<String> _base() => ApiConfig.readBase();
+
+  // Public helper: current bearer header (for other services)
+  static Future<Map<String, String>> authHeader() async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('jwt_token') ?? prefs.getString('token');
+    return token == null
+        ? {'Accept': 'application/json'}
+        : {'Accept': 'application/json', 'Authorization': 'Bearer $token'};
+  }
 
   // ========= PASSWORD LOGIN (email or phone supported) =========
   Future<Map<String, dynamic>?> loginWithIdentifier(
@@ -24,17 +36,18 @@ class AuthService {
       ToastHelper.showCustomToast(
         context,
         'Enter a valid email or phone (08/09… or +265…)',
-        isSuccess: false, errorMessage: '',
+        isSuccess: false,
+        errorMessage: '',
       );
       return null;
     }
 
     final normalized = _toE164IfPhone(id);
-    final url = Uri.parse('$baseUrl$_loginPath');
+    final uri = Uri.parse('${await _base()}$_loginPath');
 
-    // Try unified identifier
+    // Try unified identifier body first
     http.Response res = await http.post(
-      url,
+      uri,
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({'identifier': normalized, 'password': password}),
     );
@@ -45,7 +58,7 @@ class AuthService {
           ? {'email': id, 'password': password}
           : {'phone': normalized, 'password': password};
       res = await http.post(
-        url,
+        uri,
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode(body),
       );
@@ -55,23 +68,39 @@ class AuthService {
       final data  = _safeJson(res.body);
       final token = data['access_token'] ?? data['token'];
       final user  = Map<String, dynamic>.from(data['user'] ?? {});
-      if (token == null) {
-        ToastHelper.showCustomToast(context, ' Login failed: missing token', isSuccess: false, errorMessage: '');
+      if (token == null || (token is String && token.isEmpty)) {
+        ToastHelper.showCustomToast(
+          context,
+          'Login failed: missing token',
+          isSuccess: false,
+          errorMessage: '',
+        );
         return null;
       }
 
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('jwt_token', token);
+      // Store under BOTH keys so AuthGuard and others stay in sync
+      await prefs.setString('jwt_token', token.toString());
+      await prefs.setString('token', token.toString());
       final displayId = user['email']?.toString() ?? user['phone']?.toString() ?? normalized;
       await prefs.setString('email', displayId);
 
-      ToastHelper.showCustomToast(context, '✅ Logged in successfully', isSuccess: true, errorMessage: '');
+      // Persist whichever base we used (keeps everything consistent app-wide)
+      await ApiConfig.setBase(await _base());
+
+      ToastHelper.showCustomToast(
+        context,
+        '✅ Logged in successfully',
+        isSuccess: true,
+        errorMessage: '',
+      );
       return {'token': token, 'user': user};
     } else {
       ToastHelper.showCustomToast(
         context,
-        ' Login failed: ${_prettyError(res.body)}',
-        isSuccess: false, errorMessage: '',
+        'Login failed: ${_prettyError(res.body)}',
+        isSuccess: false,
+        errorMessage: '',
       );
       return null;
     }
@@ -84,17 +113,17 @@ class AuthService {
       ToastHelper.showCustomToast(
         context,
         'Enter a valid email or phone (08/09… or +265…)',
-        isSuccess: false, errorMessage: '',
+        isSuccess: false,
+        errorMessage: '',
       );
       return false;
     }
 
     final normalized = _toE164IfPhone(id);
-    final url = Uri.parse('$baseUrl$_otpSendPath');
+    final uri = Uri.parse('${await _base()}$_otpSendPath');
 
-    // Try unified identifier
     http.Response res = await http.post(
-      url,
+      uri,
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({'identifier': normalized}),
     );
@@ -102,19 +131,27 @@ class AuthService {
     // Fallback explicit
     if (res.statusCode != 200 && res.statusCode != 201) {
       final body = _isEmail(id) ? {'email': id} : {'phone': normalized};
-      res = await http.post(url,
-          headers: {'Content-Type': 'application/json'},
-          body: jsonEncode(body));
+      res = await http.post(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(body),
+      );
     }
 
     if (res.statusCode == 200 || res.statusCode == 201) {
-      ToastHelper.showCustomToast(context, '📨 Verification code sent', isSuccess: true, errorMessage: '');
+      ToastHelper.showCustomToast(
+        context,
+        '📨 Verification code sent',
+        isSuccess: true,
+        errorMessage: '',
+      );
       return true;
     } else {
       ToastHelper.showCustomToast(
         context,
         'Couldn’t send code: ${_prettyError(res.body)}',
-        isSuccess: false, errorMessage: '',
+        isSuccess: false,
+        errorMessage: '',
       );
       return false;
     }
@@ -124,39 +161,45 @@ class AuthService {
   Future<bool> verifyOtp(String identifier, String code, BuildContext context) async {
     final id = identifier.trim();
     final normalized = _toE164IfPhone(id);
-    final url = Uri.parse('$baseUrl$_otpVerifyPath');
+    final uri = Uri.parse('${await _base()}$_otpVerifyPath');
 
-    // Try unified
     http.Response res = await http.post(
-      url,
+      uri,
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({'identifier': normalized, 'otp': code}),
     );
 
-    // Fallback explicit
     if (res.statusCode != 200 && res.statusCode != 201) {
       final body = _isEmail(id)
           ? {'email': id, 'otp': code}
           : {'phone': normalized, 'otp': code};
-      res = await http.post(url,
-          headers: {'Content-Type': 'application/json'},
-          body: jsonEncode(body));
+      res = await http.post(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(body),
+      );
     }
 
     if (res.statusCode == 200 || res.statusCode == 201) {
-      ToastHelper.showCustomToast(context, '✅ Code verified', isSuccess: true, errorMessage: '');
+      ToastHelper.showCustomToast(
+        context,
+        '✅ Code verified',
+        isSuccess: true,
+        errorMessage: '',
+      );
       return true;
     } else {
       ToastHelper.showCustomToast(
         context,
         'Verification failed: ${_prettyError(res.body)}',
-        isSuccess: false, errorMessage: '',
+        isSuccess: false,
+        errorMessage: '',
       );
       return false;
     }
   }
 
-  // ========= REGISTER USER (after verification) =========
+  // ========= REGISTER USER =========
   Future<bool> registerUser({
     required String name,
     required String email,
@@ -165,10 +208,10 @@ class AuthService {
     required BuildContext context,
   }) async {
     final phoneE164 = _toE164IfPhone(phone.trim());
-    final url = Uri.parse('$baseUrl$_registerPath');
+    final uri = Uri.parse('${await _base()}$_registerPath');
 
     final res = await http.post(
-      url,
+      uri,
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({
         'name'    : name.trim(),
@@ -179,16 +222,31 @@ class AuthService {
     );
 
     if (res.statusCode == 201 || res.statusCode == 200) {
-      ToastHelper.showCustomToast(context, '🎉 Account created successfully', isSuccess: true, errorMessage: '');
+      ToastHelper.showCustomToast(
+        context,
+        '🎉 Account created successfully',
+        isSuccess: true,
+        errorMessage: '',
+      );
       return true;
     } else {
       ToastHelper.showCustomToast(
         context,
-        ' Registration failed: ${_prettyError(res.body)}',
-        isSuccess: false, errorMessage: '',
+        'Registration failed: ${_prettyError(res.body)}',
+        isSuccess: false,
+        errorMessage: '',
       );
       return false;
     }
+  }
+
+  // ========= OPTIONAL: Logout =========
+  Future<void> logout() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('jwt_token');
+    await prefs.remove('token');
+    await prefs.remove('email');
+    // (Keep ApiConfig base; it’s environment, not session)
   }
 
   // ========= Helpers =========

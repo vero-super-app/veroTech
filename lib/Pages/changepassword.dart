@@ -1,29 +1,21 @@
-// lib/pages/change_password_page.dart
-import 'dart:convert';
-import 'package:flutter/foundation.dart'
-    show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:vero360_app/services/changepassword_service.dart';
 import 'package:vero360_app/toasthelper.dart';
 
 class ChangePasswordPage extends StatefulWidget {
-  const ChangePasswordPage({Key? key, this.userId = 1}) : super(key: key);
-  final int userId; // defaults to 1 as requested
+  const ChangePasswordPage({Key? key}) : super(key: key);
 
   @override
   State<ChangePasswordPage> createState() => _ChangePasswordPageState();
 }
 
 class _ChangePasswordPageState extends State<ChangePasswordPage> {
-  // THEME
-  final Color _brand = const Color(0xFFFF8A00); // orange
-
-  // FORM
+  final Color _brand = const Color(0xFFFF8A00);
   final _formKey = GlobalKey<FormState>();
   final _currentCtrl = TextEditingController();
   final _newCtrl = TextEditingController();
   final _confirmCtrl = TextEditingController();
+  final _svc = AccountService();
 
   bool _showCurrent = false;
   bool _showNew = false;
@@ -62,104 +54,29 @@ class _ChangePasswordPageState extends State<ChangePasswordPage> {
     return (score / 5).clamp(0, 1).toDouble();
   }
 
-  Future<String?> _readToken() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString('token') ?? prefs.getString('jwt_token');
-  }
-
-  Future<Uri> _buildUri() async {
-    final prefs = await SharedPreferences.getInstance();
-    final saved = prefs.getString('api_base');
-    final base = (saved != null && saved.isNotEmpty)
-        ? saved
-        : kIsWeb
-            ? 'http://localhost:3000'
-            : (defaultTargetPlatform == TargetPlatform.android
-                ? 'http://10.0.2.2:3000'
-                : 'http://127.0.0.1:3000');
-    return Uri.parse('$base/users/${widget.userId}/password');
-  }
-
-  String _prettyError(String body) {
-    try {
-      final parsed = jsonDecode(body);
-      if (parsed is Map) {
-        final msg = parsed['message'] ?? parsed['error'];
-        if (msg is List && msg.isNotEmpty) return msg.first.toString();
-        return msg?.toString() ?? body;
-      }
-      if (parsed is List && parsed.isNotEmpty) return parsed.first.toString();
-      return body;
-    } catch (_) {
-      return body;
-    }
-  }
-
   Future<void> _submit() async {
     FocusScope.of(context).unfocus();
     if (!_formKey.currentState!.validate()) return;
 
     setState(() => _saving = true);
     try {
-      final token = await _readToken();
-      if (token == null || token.isEmpty) {
-        ToastHelper.showCustomToast(
-          context,
-          'Please log in again.',
-          isSuccess: false,
-          errorMessage: 'Missing token',
-        );
-        setState(() => _saving = false);
-        return;
-      }
-
-      final uri = await _buildUri();
-      final res = await http
-          .put(
-            uri,
-            headers: {
-              'Accept': 'application/json',
-              'Content-Type': 'application/json',
-              'Authorization': 'Bearer $token',
-            },
-            body: jsonEncode({
-              'currentPassword': _currentCtrl.text,
-              'newPassword': _newCtrl.text,
-            }),
-          )
-          .timeout(const Duration(seconds: 20));
-
-      if (res.statusCode == 200 || res.statusCode == 204) {
-        if (!mounted) return;
-        ToastHelper.showCustomToast(
-          context,
-          '✅ Password changed successfully',
-          isSuccess: true,
-          errorMessage: '',
-        );
-        Navigator.pop(context, true);
-      } else if (res.statusCode == 401 || res.statusCode == 403) {
-        if (!mounted) return;
-        ToastHelper.showCustomToast(
-          context,
-          'Session expired. Please log in.',
-          isSuccess: false,
-          errorMessage: 'HTTP ${res.statusCode}',
-        );
-      } else {
-        if (!mounted) return;
-        ToastHelper.showCustomToast(
-          context,
-          'Failed to change password',
-          isSuccess: false,
-          errorMessage: _prettyError(res.body),
-        );
-      }
+      await _svc.changePassword(
+        currentPassword: _currentCtrl.text,
+        newPassword: _newCtrl.text,
+      );
+      if (!mounted) return;
+      ToastHelper.showCustomToast(
+        context,
+        '✅ Password updated successfully',
+        isSuccess: true,
+        errorMessage: '',
+      );
+      Navigator.pop(context, true);
     } catch (e) {
       if (!mounted) return;
       ToastHelper.showCustomToast(
         context,
-        'Error while updating password',
+        'Failed to change password',
         isSuccess: false,
         errorMessage: e.toString(),
       );

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
+import 'package:vero360_app/Pages/Home/myorders.dart';
 import 'package:vero360_app/Pages/QRcode.dart';
 
 /* Inline pages displayed in bottom sheets (stay on same Profile screen) */
@@ -351,7 +352,7 @@ class _ProfilePageState extends State<ProfilePage> {
             _openBottomSheet(const ToPayPage());
           }),
           _orderAction('My Orders', Icons.book, () {
-            _openBottomSheet(const ToPayPage());
+            _openBottomSheet(const  OrdersPage());
           }),
           _orderAction('To Ship', Icons.local_shipping_outlined, () {
             _openBottomSheet(const ToShipPage());

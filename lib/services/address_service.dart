@@ -1,16 +1,11 @@
+// lib/services/address_service.dart
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vero360_app/models/address_model.dart';
-
-/// If you previously added ApiBase, you can replace [_buildUri] with it.
-Future<Uri> _buildUri(String path) async {
-  final prefs = await SharedPreferences.getInstance();
-  final saved = prefs.getString('https://vero-backend.onrender.com'); // e.g. http://10.0.2.2:3000 or https://vero-backend.onrender.com
-  final base = (saved != null && saved.isNotEmpty) ? saved : 'https://vero-backend.onrender.com';
-  return Uri.parse('$base$path');
-}
+import 'package:vero360_app/services/api_config.dart';
 
 class AuthRequiredException implements Exception {
   final String message;
@@ -20,14 +15,20 @@ class AuthRequiredException implements Exception {
 }
 
 class AddressService {
+  // ---------- Core helpers ----------
+
+  Future<String> _readBase() => ApiConfig.readBase();
+
   Future<String> _getTokenOrThrow() async {
     final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('token') ?? prefs.getString('jwt_token');
-    if (token == null || token.isEmpty) throw AuthRequiredException('No auth token found');
+    final token = prefs.getString('jwt_token') ?? prefs.getString('token');
+    if (token == null || token.isEmpty) {
+      throw AuthRequiredException('No auth token found.');
+    }
     return token;
   }
 
-  Future<Map<String, String>> _headers() async {
+  Future<Map<String, String>> _authHeaders() async {
     final t = await _getTokenOrThrow();
     return {
       'Accept': 'application/json',
@@ -43,11 +44,57 @@ class AddressService {
     throw Exception('HTTP ${r.statusCode}: ${r.body}');
   }
 
+  /// Render cold starts can exceed 20s. Use 60s + retry with small backoff.
+  Future<http.Response> _sendWithRetry(
+    Future<http.Response> Function() fn, {
+    int retries = 2,
+  }) async {
+    int attempt = 0;
+    while (true) {
+      try {
+        final res = await fn().timeout(const Duration(seconds: 60));
+        // retry on 502/503/504 (cold start)
+        if ((res.statusCode == 502 || res.statusCode == 503 || res.statusCode == 504) &&
+            attempt < retries) {
+          attempt++;
+          await Future.delayed(Duration(milliseconds: 600 * attempt));
+          continue;
+        }
+        return res;
+      } on TimeoutException {
+        if (attempt < retries) {
+          attempt++;
+          await Future.delayed(Duration(milliseconds: 600 * attempt));
+          continue;
+        }
+        rethrow;
+      } on SocketException catch (e) {
+        if (attempt < retries) {
+          attempt++;
+          await Future.delayed(Duration(milliseconds: 600 * attempt));
+          continue;
+        }
+        throw Exception('Network error: $e');
+      } on http.ClientException catch (e) {
+        if (attempt < retries) {
+          attempt++;
+          await Future.delayed(Duration(milliseconds: 600 * attempt));
+          continue;
+        }
+        throw Exception('HTTP client error: $e');
+      }
+    }
+  }
+
+  // ---------- API methods ----------
+
   // GET /addresses/me
   Future<List<Address>> getMyAddresses() async {
-    final u = await _buildUri('/addresses/me');
-    final h = await _headers();
-    final r = await http.get(u, headers: h).timeout(const Duration(seconds: 20));
+    final base = await _readBase();
+    final h = await _authHeaders();
+    final u = Uri.parse('$base/addresses/me');
+
+    final r = await _sendWithRetry(() => http.get(u, headers: h));
     if (r.statusCode != 200) _handleBad(r);
 
     final decoded = jsonDecode(r.body);
@@ -56,20 +103,33 @@ class AddressService {
         : (decoded is Map && decoded['data'] is List)
             ? decoded['data'] as List
             : <dynamic>[];
-    return list.whereType<Map<String, dynamic>>().map(Address.fromJson).toList();
+
+    return list
+        .whereType<Map<String, dynamic>>()
+        .map<Address>((m) => Address.fromJson(m))
+        .toList();
   }
 
   // POST /addresses
   Future<Address> createAddress(AddressPayload payload) async {
-    final u = await _buildUri('/addresses');
-    final h = await _headers();
-    final r = await http
-        .post(u, headers: h, body: jsonEncode(payload.toJson()))
-        .timeout(const Duration(seconds: 20));
+    final base = await _readBase();
+    final h = await _authHeaders();
+    final u = Uri.parse('$base/addresses');
+
+    final r = await _sendWithRetry(
+      () => http.post(u, headers: h, body: jsonEncode(payload.toJson())),
+    );
+
     if (r.statusCode < 200 || r.statusCode >= 300) _handleBad(r);
 
+    if (r.body.isEmpty) {
+      // Some APIs return 204; refetch list and return last
+      final all = await getMyAddresses();
+      return all.isNotEmpty ? all.last : throw Exception('Create succeeded but no body/list empty');
+    }
+
     final d = jsonDecode(r.body);
-    final map = d is Map<String, dynamic>
+    final map = (d is Map<String, dynamic>)
         ? d
         : (d is Map && d['data'] is Map)
             ? d['data'] as Map<String, dynamic>
@@ -79,22 +139,33 @@ class AddressService {
 
   // PUT /addresses/:id
   Future<Address> updateAddress(String id, AddressPayload payload) async {
-    final u = await _buildUri('/addresses/$id');
-    final h = await _headers();
-    final r = await http
-        .put(u, headers: h, body: jsonEncode(payload.toJson()))
-        .timeout(const Duration(seconds: 20));
+    final base = await _readBase();
+    final h = await _authHeaders();
+    final u = Uri.parse('$base/addresses/$id');
+
+    final r = await _sendWithRetry(
+      () => http.put(u, headers: h, body: jsonEncode(payload.toJson())),
+    );
+
     if (r.statusCode < 200 || r.statusCode >= 300) _handleBad(r);
 
-    // Some APIs return 204 (no body); handle gracefully
     if (r.body.isEmpty) {
-      // Re-fetch the updated record from /me list:
+      // Gracefully handle 204: re-fetch the updated list and find the record
       final all = await getMyAddresses();
-      return all.firstWhere((a) => a.id == id, orElse: () => all.first);
+      return all.firstWhere((a) => a.id == id, orElse: () {
+        // If not found just return a minimal model
+        return Address(
+          id: id,
+          addressType: payload.addressType,
+          city: payload.city,
+          description: payload.description ?? '',
+          isDefault: payload.isDefault ?? false,
+        );
+      });
     }
 
     final d = jsonDecode(r.body);
-    final map = d is Map<String, dynamic>
+    final map = (d is Map<String, dynamic>)
         ? d
         : (d is Map && d['data'] is Map)
             ? d['data'] as Map<String, dynamic>
@@ -104,19 +175,25 @@ class AddressService {
 
   // DELETE /addresses/:id
   Future<void> deleteAddress(String id) async {
-    final u = await _buildUri('/addresses/$id');
-    final h = await _headers();
-    final r = await http.delete(u, headers: h).timeout(const Duration(seconds: 20));
+    final base = await _readBase();
+    final h = await _authHeaders();
+    final u = Uri.parse('$base/addresses/$id');
+
+    final r = await _sendWithRetry(() => http.delete(u, headers: h));
     if (r.statusCode < 200 || r.statusCode >= 300) _handleBad(r);
   }
 
-  // --- NEW: server-side default flag ---
+  /// Mark one address as default. If your backend has
+  /// `POST /addresses/:id/default` use that instead.
   Future<void> setDefaultAddress(String id) async {
-    // Get the target so we don't accidentally wipe fields
+    // Fetch once to know current values, avoid wiping fields.
     final addresses = await getMyAddresses();
-    final target = addresses.firstWhere((a) => a.id == id, orElse: () => throw Exception('Address not found'));
+    final target = addresses.firstWhere(
+      (a) => a.id == id,
+      orElse: () => throw Exception('Address not found'),
+    );
 
-    // 1) Mark chosen one as default (server should clear others internally)
+    // 1) Set chosen as default
     await updateAddress(
       id,
       AddressPayload(
@@ -127,10 +204,9 @@ class AddressService {
       ),
     );
 
-    // 2) (Optional) Mark all others false if the server doesn't auto-clear
+    // 2) If others were default, clear them (if server doesn't auto-clear)
     for (final a in addresses) {
       if (a.id == id) continue;
-      // Only send if it was previously default
       if (a.isDefault) {
         await updateAddress(
           a.id,
