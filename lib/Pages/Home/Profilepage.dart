@@ -1,8 +1,12 @@
+// lib/Pages/profile_page.dart
 import 'dart:async'; // <-- for FutureOr
 import 'dart:convert';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
+import 'package:image_picker/image_picker.dart';
+
 import 'package:vero360_app/Pages/Home/myorders.dart';
 import 'package:vero360_app/Pages/QRcode.dart';
 
@@ -14,11 +18,9 @@ import 'package:vero360_app/Pages/Toship.dart';
 import 'package:vero360_app/Pages/address.dart';
 import 'package:vero360_app/Pages/changepassword.dart';
 import 'package:vero360_app/models/Latest_model.dart';
-
 import 'package:vero360_app/screens/login_screen.dart';
 
 /* Latest arrivals (API) */
-
 import 'package:vero360_app/services/latest_Services.dart';
 
 class ProfilePage extends StatefulWidget {
@@ -37,7 +39,11 @@ class _ProfilePageState extends State<ProfilePage> {
 
   String fullName = "Guest User";
   String email = "No Email";
+  String phone = "No Phone";
   String address = "No Address";
+  String profileUrl = "";
+
+  bool _loading = false;
 
   // demo wallet figures – replace with real values if you have them
   double balance = 450;
@@ -55,14 +61,11 @@ class _ProfilePageState extends State<ProfilePage> {
     setState(() {
       fullName = prefs.getString('fullName') ??
           prefs.getString('name') ??
-          // sometimes people store first/last separately:
-          _joinName(
-            prefs.getString('firstName'),
-            prefs.getString('lastName'),
-            fallback: 'Guest User',
-          );
+          'Guest User';
       email = prefs.getString('email') ?? 'No Email';
+      phone = prefs.getString('phone') ?? 'No Phone';
       address = prefs.getString('address') ?? 'No Address';
+      profileUrl = prefs.getString('profilepicture') ?? '';
     });
   }
 
@@ -74,26 +77,26 @@ class _ProfilePageState extends State<ProfilePage> {
 
   Future<String> _getAuthToken() async {
     final prefs = await SharedPreferences.getInstance();
-    // be robust: support either 'authToken' or 'token'
-    return prefs.getString('authToken') ?? prefs.getString('token') ?? '';
+    // Be robust to multiple keys used elsewhere in the app
+    return prefs.getString('jwt_token') ??
+        prefs.getString('token') ??
+        prefs.getString('authToken') ??
+        '';
   }
 
   Future<void> _persistUserToPrefs(Map<String, dynamic> data) async {
     final prefs = await SharedPreferences.getInstance();
-    // Try multiple possible shapes
-    // 1) { name, email, addresses: [{address: "..."}] }
-    // 2) { user: { fullName/firstName/lastName/email, ... } }
-    // 3) flat with fullName or title fields
+
+    // API might return either root fields or inside { user: {...} }
     final user = (data['user'] is Map) ? (data['user'] as Map) : data;
 
-    final name =
-        (user['name'] ??
-                user['fullName'] ??
-                _joinName(user['firstName'], user['lastName'], fallback: '') ??
-                user['title'])
-            ?.toString();
-
-    final emailVal = (user['email'] ?? user['userEmail'])?.toString();
+    final name = (user['name'] ??
+            _joinName(user['firstName'], user['lastName'], fallback: ''))
+        .toString();
+    final emailVal = (user['email'] ?? user['userEmail'] ?? '').toString();
+    final phoneVal = (user['phone'] ?? '').toString();
+    final picVal =
+        (user['profilepicture'] ?? user['profilePicture'] ?? '').toString();
 
     String addr = 'No Address';
     final addresses = user['addresses'];
@@ -109,21 +112,28 @@ class _ProfilePageState extends State<ProfilePage> {
     }
 
     setState(() {
-      fullName = (name == null || name.trim().isEmpty) ? 'Guest User' : name;
-      email = (emailVal == null || emailVal.trim().isEmpty) ? 'No Email' : emailVal;
-      address = (addr.trim().isEmpty) ? 'No Address' : addr;
+      fullName = name.trim().isEmpty ? 'Guest User' : name.trim();
+      email = emailVal.trim().isEmpty ? 'No Email' : emailVal.trim();
+      phone = phoneVal.trim().isEmpty ? 'No Phone' : phoneVal.trim();
+      address = (addr.trim().isEmpty) ? 'No Address' : addr.trim();
+      profileUrl = picVal;
     });
 
     await prefs.setString('fullName', fullName);
+    await prefs.setString('name', fullName); // keep legacy key too
     await prefs.setString('email', email);
+    await prefs.setString('phone', phone);
     await prefs.setString('address', address);
+    await prefs.setString('profilepicture', profileUrl);
   }
 
   Future<void> _fetchCurrentUser() async {
+    setState(() => _loading = true);
     try {
       final token = await _getAuthToken();
       if (token.isEmpty) {
         debugPrint('No auth token found. Showing stored/fallback user.');
+        setState(() => _loading = false);
         return;
       }
 
@@ -144,13 +154,153 @@ class _ProfilePageState extends State<ProfilePage> {
             decoded is Map && decoded['data'] is Map
                 ? Map<String, dynamic>.from(decoded['data'])
                 : (decoded is Map ? Map<String, dynamic>.from(decoded) : {});
-
         await _persistUserToPrefs(payload);
+      } else if (response.statusCode == 401 || response.statusCode == 403) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Session expired. Please log in.')),
+        );
       } else {
-        debugPrint('Failed to fetch user: ${response.statusCode} ${response.body}');
+        debugPrint(
+            'Failed to fetch user: ${response.statusCode} ${response.body}');
       }
     } catch (e) {
       debugPrint('Error fetching user: $e');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  // ---- Profile picture flow ----
+  void _showPhotoSheet() {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (_) => SafeArea(
+        child: Wrap(
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_camera_outlined),
+              title: const Text('Take a photo'),
+              onTap: () {
+                Navigator.pop(context);
+                _pickAndUpload(ImageSource.camera);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('Choose from gallery'),
+              onTap: () {
+                Navigator.pop(context);
+                _pickAndUpload(ImageSource.gallery);
+              },
+            ),
+            if (profileUrl.isNotEmpty)
+              ListTile(
+                leading: const Icon(Icons.remove_circle_outline),
+                title: const Text('Remove current photo (local)'),
+                onTap: () async {
+                  Navigator.pop(context);
+                  setState(() => profileUrl = '');
+                  final prefs = await SharedPreferences.getInstance();
+                  await prefs.setString('profilepicture', '');
+                  // If you also support deleting on server, call that endpoint here.
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickAndUpload(ImageSource source) async {
+    try {
+      final picker = ImagePicker();
+      final file = await picker.pickImage(
+        source: source,
+        maxWidth: 1400,
+        imageQuality: 85,
+      );
+      if (file == null) return;
+      await _uploadProfilePicture(file);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not pick image: $e')),
+      );
+    }
+  }
+
+  /// Upload endpoint assumed:
+  /// POST https://vero-backend.onrender.com/users/me/profile-picture
+  /// multipart/form-data with field name "file"
+  Future<void> _uploadProfilePicture(XFile picked) async {
+    final token = await _getAuthToken();
+    if (token.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please log in to update your photo.')),
+      );
+      return;
+    }
+
+    setState(() => _loading = true);
+    try {
+      final uri =
+          Uri.parse('https://vero-backend.onrender.com/users/me/profile-picture');
+
+      final req = http.MultipartRequest('POST', uri)
+        ..headers['Authorization'] = 'Bearer $token';
+
+      if (kIsWeb) {
+        final bytes = await picked.readAsBytes();
+        req.files.add(http.MultipartFile.fromBytes(
+          'file',
+          bytes,
+          filename: 'avatar.jpg',
+        ));
+      } else {
+        req.files.add(await http.MultipartFile.fromPath('file', picked.path));
+      }
+
+      final sent = await req.send();
+      final resp = await http.Response.fromStream(sent);
+
+      if (resp.statusCode >= 200 && resp.statusCode < 300) {
+        final jsonMap = jsonDecode(resp.body);
+        final payload = (jsonMap is Map && jsonMap['data'] is Map)
+            ? Map<String, dynamic>.from(jsonMap['data'])
+            : (jsonMap is Map ? Map<String, dynamic>.from(jsonMap) : {});
+        final newUrl = (payload['profilepicture'] ??
+                payload['profilePicture'] ??
+                payload['url'] ??
+                '')
+            .toString();
+
+        setState(() => profileUrl = newUrl);
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('profilepicture', newUrl);
+
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Profile picture updated')),
+        );
+      } else {
+        debugPrint('Upload failed: ${resp.statusCode} ${resp.body}');
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Upload failed (${resp.statusCode})')),
+        );
+      }
+    } catch (e) {
+      debugPrint('Upload error: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Upload error: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
   }
 
@@ -172,15 +322,40 @@ class _ProfilePageState extends State<ProfilePage> {
       titleSpacing: 0,
       title: const Text('Profile', style: TextStyle(color: Colors.white)),
       actions: [
+        if (_loading)
+          const Padding(
+            padding: EdgeInsets.only(right: 12),
+            child: Center(
+              child: SizedBox(
+                width: 18,
+                height: 18,
+                child:
+                    CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+              ),
+            ),
+          ),
         IconButton(
-          icon: const Icon(Icons.search, color: Colors.white),
-          onPressed: () {},
+          icon: const Icon(Icons.logout, color: Colors.white),
+          onPressed: _logout,
+          tooltip: 'Logout',
         ),
       ],
     );
   }
 
   Widget _topProfileCard() {
+    final avatar = GestureDetector(
+      onTap: _showPhotoSheet,
+      child: CircleAvatar(
+        radius: 26,
+        backgroundColor: Colors.black12,
+        backgroundImage: profileUrl.isNotEmpty ? NetworkImage(profileUrl) : null,
+        child: profileUrl.isEmpty
+            ? const Icon(Icons.person, size: 28, color: Colors.black45)
+            : null,
+      ),
+    );
+
     return Stack(
       children: [
         // Rounded navy header background
@@ -214,11 +389,7 @@ class _ProfilePageState extends State<ProfilePage> {
               ),
               child: Row(
                 children: [
-                  const CircleAvatar(
-                    radius: 26,
-                    backgroundColor: Colors.black12,
-                    child: Icon(Icons.person, size: 28, color: Colors.black45),
-                  ),
+                  avatar,
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
@@ -235,10 +406,17 @@ class _ProfilePageState extends State<ProfilePage> {
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
                                 color: Colors.black54, fontSize: 13)),
+                        const SizedBox(height: 2),
+                        Text(phone,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                                color: Colors.black54, fontSize: 13)),
                         const SizedBox(height: 6),
                         GestureDetector(
                           onTap: () {
-                            // Keep as-is (opens on same Profile page)
+                            // You can navigate to a dedicated edit-profile page if you have one.
+                            // For now keeping your original bottom-sheet example:
                             _openBottomSheet(const MyBookingsPage());
                           },
                           child: Text(
@@ -256,9 +434,7 @@ class _ProfilePageState extends State<ProfilePage> {
                   // 3-dots menu -> must say "Active"
                   PopupMenuButton<String>(
                     icon: const Icon(Icons.more_horiz),
-                    onSelected: (value) {
-                      // you can react to selections here if needed
-                    },
+                    onSelected: (_) {},
                     itemBuilder: (context) => [
                       PopupMenuItem<String>(
                         value: 'active',
@@ -305,8 +481,8 @@ class _ProfilePageState extends State<ProfilePage> {
           children: [
             Container(
               padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                  color: bg, borderRadius: BorderRadius.circular(12)),
+              decoration:
+                  BoxDecoration(color: bg, borderRadius: BorderRadius.circular(12)),
               child: Icon(icon, size: 20, color: _brandNavy),
             ),
             const SizedBox(width: 10),
@@ -315,7 +491,8 @@ class _ProfilePageState extends State<ProfilePage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(title,
-                      style: const TextStyle(fontSize: 12, color: Colors.black54)),
+                      style:
+                          const TextStyle(fontSize: 12, color: Colors.black54)),
                   const SizedBox(height: 2),
                   Text(value,
                       style: const TextStyle(
@@ -348,18 +525,16 @@ class _ProfilePageState extends State<ProfilePage> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-         
           _orderAction('My Orders', Icons.book, () {
-            _openBottomSheet(const  OrdersPage());
+            _openBottomSheet(const OrdersPage());
           }),
-          
           _orderAction('Shipped', Icons.local_shipping_outlined, () {
             _openBottomSheet(const ToShipPage());
           }),
           _orderAction('Received', Icons.move_to_inbox_outlined, () {
             _openBottomSheet(const DeliveredOrdersPage());
           }),
-           _orderAction('Accomodation', Icons.house, () {
+          _orderAction('Accomodation', Icons.house, () {
             _openBottomSheet(const MyBookingsPage());
           }),
           _orderAction('Refund', Icons.replay_circle_filled_outlined, () {
@@ -413,14 +588,13 @@ class _ProfilePageState extends State<ProfilePage> {
   Widget _otherDetailsGrid() {
     final items = <_DetailItem>[
       _DetailItem('My QR Code', Icons.qr_code_2, () {
-         _openBottomSheet(const ProfileQrPage());
+        _openBottomSheet(const ProfileQrPage());
       }),
       _DetailItem('My Address', Icons.location_on, () {
         _openBottomSheet(const AddressPage());
       }),
       _DetailItem('Change Password', Icons.lock_outline, () {
-        // TODO: open password change sheet 
-          _openBottomSheet(const ChangePasswordPage());  
+        _openBottomSheet(const ChangePasswordPage());
       }),
       _DetailItem('Notification', Icons.notifications_none, () {}),
       _DetailItem('Language', Icons.language, () {}),
@@ -480,12 +654,9 @@ class _ProfilePageState extends State<ProfilePage> {
           children: [
             _topProfileCard(),
             const SizedBox(height: 52), // space under the floating card
-            _ordersQuickActions(), // To Pay / To Ship / To Receive / Refund (bottom sheets)
-
-           
-
+            _ordersQuickActions(),
             _otherDetailsGrid(),
-             // 👉 LATEST ARRIVALS (API)
+            // 👉 LATEST ARRIVALS (API)
             const LatestArrivalsSection(),
             const SizedBox(height: 16),
           ],
@@ -655,8 +826,8 @@ class _ProductCardFromApi extends StatelessWidget {
         children: [
           // Use network image (falls back to placeholder on error)
           ClipRRect(
-            borderRadius:
-                const BorderRadius.only(topLeft: Radius.circular(16), topRight: Radius.circular(16)),
+            borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(16), topRight: Radius.circular(16)),
             child: imageUrl.isNotEmpty
                 ? Image.network(
                     imageUrl,
@@ -696,7 +867,9 @@ class _ProductCardFromApi extends StatelessWidget {
                       Text(
                         priceText,
                         style: const TextStyle(
-                            fontSize: 14, fontWeight: FontWeight.w700, color: Colors.green),
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.green),
                       ),
                     ],
                   ),

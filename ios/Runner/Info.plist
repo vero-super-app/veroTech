@@ -88,6 +88,11 @@
 <key>NSPhotoLibraryUsageDescription</key>
 <string>We need access to your Photos to save the QR image.</string>
 
+<key>NSCameraUsageDescription</key>
+<string>We use your camera to take a profile picture.</string>
+<key>NSPhotoLibraryUsageDescription</key>
+<string>We need photo library access to pick a profile picture.</string>
+
 
 
 	<!-- 🔸 ATS: allow http://localhost:3000 during development.

@@ -318,7 +318,7 @@ class _OrdersPageState extends State<OrdersPage> with SingleTickerProviderStateM
             return ListView(
               children: const [
                 SizedBox(height: 90),
-                Center(child: Text('No orders in this status')),
+                Center(child: Text('No orders in this status', style: TextStyle(color: Colors.red))),
               ],
             );
           }
