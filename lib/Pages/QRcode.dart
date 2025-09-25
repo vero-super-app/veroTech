@@ -218,7 +218,7 @@ class _ProfileQrPageState extends State<ProfileQrPage> {
                       Text('Vero360 App', style: titleStyle),
                       const SizedBox(height: 6),
                       Text(
-                        'Scan to view my profile.\n(Requires Vero360 auth)',
+                        'Scan to add me on VeroChat or view my profile.',
                         style: Theme.of(context)
                             .textTheme
                             .bodyMedium
@@ -283,7 +283,7 @@ class _ProfileQrPageState extends State<ProfileQrPage> {
                 ),
                 const SizedBox(height: 10),
                 Text(
-                  'Scan with any QR app (then authenticate)',
+                  'Scan with any QR app or the Vero360 app to view my profile.',
                   style: Theme.of(context)
                       .textTheme
                       .bodySmall

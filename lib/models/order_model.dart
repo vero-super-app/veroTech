@@ -1,34 +1,27 @@
 import 'dart:convert';
 
-enum OrderStatus { pending, inProgress, completed, cancelled }
+enum OrderStatus { pending, confirmed, delivered, cancelled }
 enum OrderCategory { food, other }
 enum PaymentStatus { paid, unpaid, pending }
 
 OrderStatus orderStatusFrom(String? v) {
   final s = (v ?? '').toLowerCase().trim();
   switch (s) {
-    case 'in_progress':
-    case 'inprogress':
-    case 'progress':
-      return OrderStatus.inProgress;
-    case 'completed':
-    case 'complete':
-      return OrderStatus.completed;
+    case 'confirmed':  return OrderStatus.confirmed;
+    case 'delivered':  return OrderStatus.delivered;
     case 'cancelled':
-    case 'canceled':
-      return OrderStatus.cancelled;
+    case 'canceled':   return OrderStatus.cancelled;
     case 'pending':
-    default:
-      return OrderStatus.pending;
+    default:           return OrderStatus.pending;
   }
 }
 
-String orderStatusToString(OrderStatus s) {
+String orderStatusToApi(OrderStatus s) {
   switch (s) {
-    case OrderStatus.inProgress: return 'in_progress';
-    case OrderStatus.completed:  return 'completed';
-    case OrderStatus.cancelled:  return 'cancelled';
-    case OrderStatus.pending:    return 'pending';
+    case OrderStatus.confirmed: return 'confirmed';
+    case OrderStatus.delivered: return 'delivered';
+    case OrderStatus.cancelled: return 'cancelled';
+    case OrderStatus.pending:   return 'pending';
   }
 }
 
@@ -48,8 +41,7 @@ PaymentStatus paymentStatusFrom(String? v) {
 }
 
 class OrderItem {
-  // Core
-  final String id;               // "ID" or "id" etc., stringified
+  final String id;               // "ID" or "id"
   final String orderNumber;      // "OrderNumber"
   final String itemName;
   final String itemImage;
@@ -66,11 +58,11 @@ class OrderItem {
   final String? merchantPhone;
   final double? merchantAvgRating;
 
-  // Address (delivery-to)
+  // Address
   final String? addressCity;
   final String? addressDescription;
 
-  // Timestamps
+  // Date
   final DateTime? orderDate;
 
   int get total => price * quantity;
@@ -104,27 +96,27 @@ class OrderItem {
 
   factory OrderItem.fromJson(Map<String, dynamic> m) {
     // id & order number
-    final idAny = _first(m, ['ID', 'id', 'orderId', 'OrderId']);
+    final idAny = _first(m, ['ID','id','orderId','OrderId']);
     final idStr = idAny?.toString() ?? '';
-    final orderNo = _first<String>(m, ['OrderNumber', 'orderNumber']) ?? '#';
+    final orderNo = _first<String>(m, ['OrderNumber','orderNumber']) ?? '#';
 
     // basics
-    final name = _first<String>(m, ['ItemName', 'itemName']) ?? 'Item';
-    final img  = _first<String>(m, ['ItemImage', 'itemImage']) ?? '';
-    final cat  = orderCategoryFrom(_first<String>(m, ['Category', 'category']));
-    final price = int.tryParse((_first(m, ['Price', 'price']) ?? 0).toString()) ?? 0;
-    final qty   = int.tryParse((_first(m, ['Quantity', 'quantity']) ?? 1).toString()) ?? 1;
-    final desc  = _first<String>(m, ['Description', 'description']) ?? '';
-    final stat  = orderStatusFrom(_first<String>(m, ['Status', 'status']));
-    final pay   = paymentStatusFrom(_first<String>(m, ['paymentStatus', 'PaymentStatus']));
+    final name  = _first<String>(m, ['ItemName','itemName']) ?? 'Item';
+    final img   = _first<String>(m, ['ItemImage','itemImage']) ?? '';
+    final cat   = orderCategoryFrom(_first<String>(m, ['Category','category']));
+    final price = int.tryParse((_first(m, ['Price','price']) ?? 0).toString()) ?? 0;
+    final qty   = int.tryParse((_first(m, ['Quantity','quantity']) ?? 1).toString()) ?? 1;
+    final desc  = _first<String>(m, ['Description','description']) ?? '';
+    final stat  = orderStatusFrom(_first<String>(m, ['Status','status']));
+    final pay   = paymentStatusFrom(_first<String>(m, ['paymentStatus','PaymentStatus']));
 
     // merchant block
-    int merchId = int.tryParse((_first(m, ['merchantId', 'MerchantId']) ?? 0).toString()) ?? 0;
+    int merchId = int.tryParse((_first(m, ['merchantId','MerchantId']) ?? 0).toString()) ?? 0;
     String? merchName;
     String? merchPhone;
     double? merchAvg;
 
-    final merchRaw = _first<Map>(m, ['merchant', 'Merchant']);
+    final merchRaw = _first<Map>(m, ['merchant','Merchant']);
     if (merchRaw != null) {
       merchId    = int.tryParse((merchRaw['id'] ?? merchId).toString()) ?? merchId;
       merchName  = merchRaw['name']?.toString();
@@ -135,7 +127,7 @@ class OrderItem {
     // address block
     String? addrCity;
     String? addrDesc;
-    final addrRaw = _first<Map>(m, ['address', 'Address']);
+    final addrRaw = _first<Map>(m, ['address','Address']);
     if (addrRaw != null) {
       addrCity = addrRaw['city']?.toString();
       addrDesc = addrRaw['description']?.toString();
@@ -143,7 +135,7 @@ class OrderItem {
 
     // dates
     DateTime? date;
-    final dRaw = _first<String>(m, ['OrderDate', 'orderDate', 'createdAt', 'CreatedAt']);
+    final dRaw = _first<String>(m, ['OrderDate','orderDate','createdAt','CreatedAt']);
     if (dRaw != null) { try { date = DateTime.parse(dRaw); } catch (_) {} }
 
     return OrderItem(
@@ -168,5 +160,5 @@ class OrderItem {
   }
 
   Map<String, dynamic> toStatusPatch(OrderStatus next) =>
-      {'Status': orderStatusToString(next)};
+      {'Status': orderStatusToApi(next)};
 }

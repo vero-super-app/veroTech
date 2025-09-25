@@ -1,35 +1,38 @@
+// lib/services/api_config.dart
 import 'dart:async';
-import 'dart:convert';
-import 'dart:io' show Platform;
-import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform, TargetPlatform;
-import 'package:http/http.dart' as http;
+import 'package:flutter/foundation.dart'
+    show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:http/http.dart' as http;
 
 class ApiConfig {
-  // Defaults
+  // ===== Defaults =====
   static const String prod = 'https://vero-backend.onrender.com';
-  static const String devAndroid = 'http://10.0.2.2:3000';
-  static const String devIOSDesktop = 'http://127.0.0.1:3000';
+  static const String devAndroid = 'http://10.0.2.2:3000';   // Android emulator → host
+  static const String devIOSDesktop = 'http://127.0.0.1:3000'; // iOS sim / desktop
+  static const String devWeb = 'http://localhost:3000';      // Flutter web
+
+  // Back-compat alias (some services reference prodBase)
+  static String get prodBase => prod;
 
   static const String _prefsKey = 'api_base';
   static String? _current;
   static bool _inited = false;
 
-  /// Call once early (e.g., in main()) or let readBase() lazy-init.
+  /// Call once early in main() or let readBase() lazy-init.
   static Future<void> init() async {
     if (_inited) return;
     final prefs = await SharedPreferences.getInstance();
 
-    // 1) If user/dev explicitly set a base earlier, use it.
-    var base = prefs.getString(_prefsKey);
+    // 1) Previously chosen base (user/dev override)
+    String? base = prefs.getString(_prefsKey)?.trim();
 
-    // 2) If not set, honor build-time dart define: --dart-define=API_BASE=...
-    base ??= const String.fromEnvironment('API_BASE', defaultValue: '');
+    // 2) Build-time define: --dart-define=API_BASE=https://example
+    base ??= const String.fromEnvironment('API_BASE', defaultValue: '').trim();
 
-    // 3) If still empty, auto-detect: try local dev quickly, else use prod
+    // 3) If empty, auto-detect: prefer local dev if reachable, else prod
     if (base.isEmpty) {
       base = await _autoDetectBase();
-      // Persist so all services use the same value consistently
       await prefs.setString(_prefsKey, base);
     }
 
@@ -37,15 +40,18 @@ class ApiConfig {
     _inited = true;
   }
 
+  /// Non-null, single source of truth.
   static Future<String> readBase() async {
     if (!_inited) await init();
-    return _current!;
+    return _current ?? prod;
   }
 
+  /// Persist and use a new base (empty → prod).
   static Future<void> setBase(String base) async {
-    _current = base;
+    final v = base.trim().isEmpty ? prod : base.trim();
+    _current = v;
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_prefsKey, base);
+    await prefs.setString(_prefsKey, v);
   }
 
   static Future<void> useProd() => setBase(prod);
@@ -53,26 +59,28 @@ class ApiConfig {
 
   // ===== Internals =====
   static String _devDefault() {
-    if (kIsWeb) return 'http://localhost:3000';
+    if (kIsWeb) return devWeb;
     if (defaultTargetPlatform == TargetPlatform.android) return devAndroid;
     return devIOSDesktop;
   }
 
   static Future<String> _autoDetectBase() async {
-    // Try dev first; if reachable, use it. Otherwise prod.
     final candidate = _devDefault();
     final ok = await _isReachable(candidate);
     return ok ? candidate : prod;
   }
 
   static Future<bool> _isReachable(String base) async {
-    try {
-      // Try a cheap endpoint; change to /health if you expose one
-      final uri = Uri.parse('$base/');
-      final res = await http.get(uri).timeout(const Duration(milliseconds: 600));
-      return res.statusCode >= 200 && res.statusCode < 500;
-    } catch (_) {
-      return false;
+    // Try /health first (if you have it), fall back to /
+    for (final path in const ['/health', '/']) {
+      try {
+        final uri = Uri.parse('$base$path');
+        final res = await http.get(uri).timeout(const Duration(milliseconds: 600));
+        if (res.statusCode >= 200 && res.statusCode < 500) return true;
+      } catch (_) {
+        // keep trying next path
+      }
     }
+    return false;
   }
 }

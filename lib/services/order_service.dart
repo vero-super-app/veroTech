@@ -14,7 +14,10 @@ class AuthRequiredException implements Exception {
 }
 
 class OrderService {
-  Future<String> _base() => ApiConfig.readBase();
+  Future<String> _base() async {
+    final v = await ApiConfig.readBase();
+    return v.isEmpty ? ApiConfig.prodBase : v;
+  }
 
   Future<String> _token() async {
     final prefs = await SharedPreferences.getInstance();
@@ -73,40 +76,64 @@ class OrderService {
     }
   }
 
-  // GET /orders/me
-  Future<List<OrderItem>> getMyOrders() async {
-    final u = Uri.parse('${await _base()}/orders/me');
+  // GET /orders/me  (optional server-side filter: ?status=pending|confirmed|delivered|cancelled)
+  Future<List<OrderItem>> getMyOrders({OrderStatus? status}) async {
+    final base = await _base();
+    final qp = status != null ? {'status': orderStatusToApi(status)} : null;
+    final u = Uri.parse('$base/orders/me').replace(queryParameters: qp);
     final h = await _headers();
 
     final r = await _retry(() => http.get(u, headers: h));
     if (r.statusCode != 200) _bad(r);
 
     final decoded = jsonDecode(r.body);
+
+    // Accept: List, {data:[...]}, or single object (wrap it)
     final List list = decoded is List
         ? decoded
         : (decoded is Map && decoded['data'] is List)
             ? decoded['data'] as List
-            : <dynamic>[];
+            : (decoded is Map ? [decoded] : <dynamic>[]);
 
-    return list.whereType<Map<String, dynamic>>().map(OrderItem.fromJson).toList();
+    final all = list.whereType<Map<String, dynamic>>().map(OrderItem.fromJson).toList();
+
+    // If backend ignored the filter, group client-side
+    if (status != null) {
+      return all.where((o) => o.status == status).toList();
+    }
+    return all;
   }
+
+  // ONLY show the changed/added parts
 
   // PATCH /orders/{id}/status
   Future<void> updateStatus(String id, OrderStatus next) async {
     final u = Uri.parse('${await _base()}/orders/$id/status');
     final h = await _headers();
-    final body = jsonEncode({'Status': orderStatusToString(next)});
+    final body = jsonEncode({'Status': orderStatusToApi(next)}); // backend expects "Status"
 
     final r = await _retry(() => http.patch(u, headers: h, body: body));
     if (r.statusCode < 200 || r.statusCode >= 300) _bad(r);
   }
 
-  // DELETE /orders/{id}  (Cancel order)
-  Future<void> cancel(String id) async {
-    final u = Uri.parse('${await _base()}/orders/$id');
-    final h = await _headers();
-
-    final r = await _retry(() => http.delete(u, headers: h));
-    if (r.statusCode < 200 || r.statusCode >= 300) _bad(r);
+  /// Cancel order:
+  /// - Prefer PATCH -> cancelled (so it appears in "Cancelled")
+  /// - Fallback to DELETE if PATCH not supported
+  /// Returns: true if moved to Cancelled (patched), false if deleted.
+  Future<bool> cancelOrMarkCancelled(String id) async {
+    try {
+      await updateStatus(id, OrderStatus.cancelled);
+      return true; // now should show under Cancelled
+    } on AuthRequiredException {
+      rethrow;
+    } catch (e) {
+      // PATCH failed — try DELETE as a fallback
+      final u = Uri.parse('${await _base()}/orders/$id');
+      final h = await _headers();
+      final r = await _retry(() => http.delete(u, headers: h));
+      if (r.statusCode < 200 || r.statusCode >= 300) _bad(r);
+      return false; // deleted entirely (won’t appear in Cancelled)
+    }
   }
+
 }

@@ -114,4 +114,6 @@ class BookingService {
       throw Exception('Error: $e');
     }
   }
+
+  Future cancelOrDelete(String id) async {}
 }

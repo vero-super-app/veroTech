@@ -8,7 +8,7 @@ import 'package:vero360_app/Pages/QRcode.dart';
 
 /* Inline pages displayed in bottom sheets (stay on same Profile screen) */
 import 'package:vero360_app/Pages/ToRefund.dart';
-import 'package:vero360_app/Pages/Topay.dart';
+import 'package:vero360_app/Pages/myaccomodation.dart';
 import 'package:vero360_app/Pages/Toreceive.dart';
 import 'package:vero360_app/Pages/Toship.dart';
 import 'package:vero360_app/Pages/address.dart';
@@ -239,7 +239,7 @@ class _ProfilePageState extends State<ProfilePage> {
                         GestureDetector(
                           onTap: () {
                             // Keep as-is (opens on same Profile page)
-                            _openBottomSheet(const ToPayPage());
+                            _openBottomSheet(const MyBookingsPage());
                           },
                           child: Text(
                             'Edit Profile',
@@ -348,17 +348,19 @@ class _ProfilePageState extends State<ProfilePage> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          _orderAction('To Pay', Icons.payment, () {
-            _openBottomSheet(const ToPayPage());
-          }),
+         
           _orderAction('My Orders', Icons.book, () {
             _openBottomSheet(const  OrdersPage());
           }),
-          _orderAction('To Ship', Icons.local_shipping_outlined, () {
+          
+          _orderAction('Shipped', Icons.local_shipping_outlined, () {
             _openBottomSheet(const ToShipPage());
           }),
-          _orderAction('To Receive', Icons.move_to_inbox_outlined, () {
-            _openBottomSheet(const ToReceivePage());
+          _orderAction('Received', Icons.move_to_inbox_outlined, () {
+            _openBottomSheet(const DeliveredOrdersPage());
+          }),
+           _orderAction('Accomodation', Icons.house, () {
+            _openBottomSheet(const MyBookingsPage());
           }),
           _orderAction('Refund', Icons.replay_circle_filled_outlined, () {
             _openBottomSheet(const ToRefundPage());
