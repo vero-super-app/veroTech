@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:vero360_app/Pages/BottomNavbar.dart';
 import 'package:vero360_app/models/hostel_model.dart';
 import 'package:vero360_app/services/hostel_service.dart';
 
@@ -14,7 +15,7 @@ class _AccomodationPageState extends State<AccomodationPage> {
   final _service = AccommodationService();
   late Future<List<Accommodation>> _future;
 
-  final _filters = const ['All', 'Apartments', 'Houses'];
+  final _filters = const ['All', 'Apartments', 'Houses','Hostels', 'BnB', 'Hotels','Lodge'];
   String _active = 'All';
   bool _animateIn = false;
 
@@ -95,7 +96,7 @@ class _AccomodationPageState extends State<AccomodationPage> {
           },
         ),
       ),
-      bottomNavigationBar: const _BottomBar(),
+     // bottomNavigationBar: const Bottomnavbar(email: '',),
     );
   }
 
@@ -609,27 +610,6 @@ class _Error extends StatelessWidget {
   }
 }
 
-class _BottomBar extends StatelessWidget {
-  const _BottomBar();
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 64,
-      decoration: const BoxDecoration(color: Colors.white, boxShadow: [
-        BoxShadow(color: Color(0x14000000), blurRadius: 18, offset: Offset(0, -6))
-      ]),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        children: const [
-          _NavIcon(icon: Icons.home_rounded, active: false),
-          _NavIcon(icon: Icons.explore_rounded, active: true),
-          _NavIcon(icon: Icons.favorite_outline_rounded, active: false),
-          _NavIcon(icon: Icons.person_outline_rounded, active: false),
-        ],
-      ),
-    );
-  }
-}
 
 class _NavIcon extends StatelessWidget {
   final IconData icon;

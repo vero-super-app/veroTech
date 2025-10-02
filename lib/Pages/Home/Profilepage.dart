@@ -19,9 +19,11 @@ import 'package:vero360_app/Pages/address.dart';
 import 'package:vero360_app/Pages/changepassword.dart';
 import 'package:vero360_app/models/Latest_model.dart';
 import 'package:vero360_app/screens/login_screen.dart';
+import 'package:vero360_app/services/auth_service.dart';
 
 /* Latest arrivals (API) */
 import 'package:vero360_app/services/latest_Services.dart';
+import 'package:vero360_app/toasthelper.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({Key? key}) : super(key: key);
@@ -37,7 +39,7 @@ class _ProfilePageState extends State<ProfilePage> {
   final Color _cardBg = Colors.white;
   final Color _chipGrey = const Color(0xFFF4F5F7);
 
-  String fullName = "Guest User";
+  String name = "Guest User";
   String email = "No Email";
   String phone = "No Phone";
   String address = "No Address";
@@ -55,19 +57,18 @@ class _ProfilePageState extends State<ProfilePage> {
     _loadUserData();
     _fetchCurrentUser();
   }
+  
+Future<void> _loadUserData() async {
+  final prefs = await SharedPreferences.getInstance();
+  setState(() {
+    name      = prefs.getString('fullName') ?? prefs.getString('name') ?? 'Guest User';
+    email     = prefs.getString('email') ?? 'No Email';
+    phone     = prefs.getString('phone') ?? 'No Phone';
+    address   = prefs.getString('address') ?? 'No Address';
+    profileUrl= prefs.getString('profilepicture') ?? '';
+  });
+}
 
-  Future<void> _loadUserData() async {
-    final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      fullName = prefs.getString('fullName') ??
-          prefs.getString('name') ??
-          'Guest User';
-      email = prefs.getString('email') ?? 'No Email';
-      phone = prefs.getString('phone') ?? 'No Phone';
-      address = prefs.getString('address') ?? 'No Address';
-      profileUrl = prefs.getString('profilepicture') ?? '';
-    });
-  }
 
   String _joinName(String? first, String? last, {required String fallback}) {
     final parts = [first, last].where((s) => s != null && s!.trim().isNotEmpty);
@@ -90,7 +91,7 @@ class _ProfilePageState extends State<ProfilePage> {
     // API might return either root fields or inside { user: {...} }
     final user = (data['user'] is Map) ? (data['user'] as Map) : data;
 
-    final name = (user['name'] ??
+    final userName = (user['name'] ??
             _joinName(user['firstName'], user['lastName'], fallback: ''))
         .toString();
     final emailVal = (user['email'] ?? user['userEmail'] ?? '').toString();
@@ -112,15 +113,15 @@ class _ProfilePageState extends State<ProfilePage> {
     }
 
     setState(() {
-      fullName = name.trim().isEmpty ? 'Guest User' : name.trim();
+      name = userName.trim().isEmpty ? 'Guest User' : userName.trim();
       email = emailVal.trim().isEmpty ? 'No Email' : emailVal.trim();
       phone = phoneVal.trim().isEmpty ? 'No Phone' : phoneVal.trim();
       address = (addr.trim().isEmpty) ? 'No Address' : addr.trim();
       profileUrl = picVal;
     });
 
-    await prefs.setString('fullName', fullName);
-    await prefs.setString('name', fullName); // keep legacy key too
+    await prefs.setString('fullName', name);
+    await prefs.setString('name', name); // keep legacy key too
     await prefs.setString('email', email);
     await prefs.setString('phone', phone);
     await prefs.setString('address', address);
@@ -226,9 +227,11 @@ class _ProfilePageState extends State<ProfilePage> {
       await _uploadProfilePicture(file);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not pick image: $e')),
-      );
+         ToastHelper.showCustomToast(context, 'Could not pick image', isSuccess: false, errorMessage: '');
+    
+      // ScaffoldMessenger.of(context).showSnackBar(
+      //   SnackBar(content: Text(': $e')),
+      // );
     }
   }
 
@@ -239,9 +242,8 @@ class _ProfilePageState extends State<ProfilePage> {
     final token = await _getAuthToken();
     if (token.isEmpty) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please log in to update your photo.')),
-      );
+         ToastHelper.showCustomToast(context, 'Please log in to update your photo', isSuccess: false, errorMessage: '');
+    
       return;
     }
 
@@ -258,7 +260,7 @@ class _ProfilePageState extends State<ProfilePage> {
         req.files.add(http.MultipartFile.fromBytes(
           'file',
           bytes,
-          filename: 'avatar.jpg',
+          filename: 'logo_mark.jpg',
         ));
       } else {
         req.files.add(await http.MultipartFile.fromPath('file', picked.path));
@@ -283,36 +285,58 @@ class _ProfilePageState extends State<ProfilePage> {
         await prefs.setString('profilepicture', newUrl);
 
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Profile picture updated')),
-        );
+           ToastHelper.showCustomToast(context, 'profile picture updated', isSuccess: true, errorMessage: '');
+      
       } else {
         debugPrint('Upload failed: ${resp.statusCode} ${resp.body}');
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Upload failed (${resp.statusCode})')),
-        );
+           ToastHelper.showCustomToast(context, 'Failed to upload', isSuccess: false, errorMessage: '');
+     
       }
     } catch (e) {
       debugPrint('Upload error: $e');
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Upload error: $e')),
-      );
+      
+     
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
 
   Future<void> _logout() async {
+  setState(() => _loading = true);
+  try {
+    // 1) Tell the auth service to log out (server + local tokens)
+    await AuthService().logout(context: context);
+
+    // 2) Clear locally cached profile bits (but don't nuke all prefs)
     final prefs = await SharedPreferences.getInstance();
-    await prefs.clear();
+    await prefs.remove('fullName');
+    await prefs.remove('name');
+    await prefs.remove('email');
+    await prefs.remove('phone');
+    await prefs.remove('address');
+    await prefs.remove('profilepicture');
+
+    // Optional: small toast/snackbar
+    if (mounted) {
+      ToastHelper.showCustomToast(context, 'You have been logged out', isSuccess: true, errorMessage: '');
+     
+    }
+  } catch (e) {
+    debugPrint('Logout error: $e');
+  } finally {
     if (!mounted) return;
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (context) => const LoginScreen()),
+    setState(() => _loading = false);
+
+    // 3) Hard reset navigation so user can’t back into authed pages
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const LoginScreen()),
+      (route) => false,
     );
   }
+}
+
 
   // ---------- UI helpers ----------
   PreferredSizeWidget _appBar() {
@@ -395,7 +419,7 @@ class _ProfilePageState extends State<ProfilePage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(fullName,
+                        Text(name,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
@@ -771,7 +795,7 @@ class _LatestArrivalsSectionState extends State<LatestArrivalsSection> {
               if (items.isEmpty) {
                 return const Padding(
                   padding: EdgeInsets.symmetric(vertical: 24),
-                  child: Center(child: Text('No items yet.')),
+                  child: Center(child: Text('No items yet.', style: TextStyle(color: Colors.red))),
                 );
               }
               return GridView.builder(

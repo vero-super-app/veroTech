@@ -79,7 +79,7 @@ class _LatestArrivalPageState extends State<LatestArrivalPage> {
           } else if (snapshot.hasError) {
             return const Center(child: Text("Failed to load items"));
           } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
-            return const Center(child: Text("No items available"));
+            return const Center(child: Text("No items available", style: TextStyle(color: Colors.red)));
           } else {
             final items = snapshot.data!;
             return Padding(

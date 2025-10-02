@@ -244,7 +244,7 @@ class _Vero360HomepageState extends State<Vero360Homepage> {
       case 'home_cleaning':
         page = const UtilityPage();
         break;
-      case 'doctor':
+      case 'Vero Chat':
         page = const EducationPage(); // kept if needed
         break;
       case 'hospital':
@@ -278,7 +278,7 @@ class _Vero360HomepageState extends State<Vero360Homepage> {
       case 'fx':
         page = const ExchangeRateScreen();
         break;
-      case 'education':
+      case 'Vero Chat':
         page = const EducationPage();
         break;
 
@@ -468,7 +468,7 @@ class _TopSection extends StatelessWidget {
                         Icon(Icons.account_balance_wallet_rounded,
                             color: Colors.white, size: 20),
                         SizedBox(width: 8),
-                        Text('Pay',
+                        Text('search',
                             style: TextStyle(
                                 color: Colors.white,
                                 fontWeight: FontWeight.w800)),
@@ -681,20 +681,20 @@ class _ServicesGridLite extends StatelessWidget {
           Icons.fastfood_rounded),
       _ServiceLite('taxi', 'Vero Ride', '15 min',
           'assets/uber-cabs-1024x576.webp', Icons.local_taxi_rounded),
-      _ServiceLite('mobile_money', 'Vero Pay', '—', '',
+      _ServiceLite('mobile_money', 'Vero Pay', '—', 'assets/veropay.png',
           Icons.account_balance_wallet_rounded),
-      _ServiceLite('accommodation', 'Accommodation', '15 min', '',
+      _ServiceLite('accommodation', 'Accommodation', '15 min', 'assets/accomodation.webp',
           Icons.bed_rounded),
-      _ServiceLite('education', 'Education', '—', '',
-          Icons.school_rounded),
-      _ServiceLite('fx', 'Exchange Rate', '—', '',
+      _ServiceLite('Vero Chat', 'Vero Chat', '—', 'assets/chat.png',
+          Icons.chat),
+      _ServiceLite('fx', 'Exchange Rate', '—', 'assets/exchange.png',
           Icons.currency_exchange_rounded),
-      _ServiceLite('home_cleaning', 'Home Cleaning', '18 min', '',
+      _ServiceLite('home_cleaning', 'Home Cleaning', '18 min', 'assets/homecleaning.png',
           Icons.cleaning_services_rounded),
 
       // kept Hospital + Doctor; Medicine removed
-      _ServiceLite('hospital', 'Hospital', '10 min', '', Icons.local_hospital_rounded),
-      _ServiceLite('doctor', 'Doctor', '10 min', '', Icons.medical_services_rounded),
+      _ServiceLite('hospital', 'Hospital', '10 min', 'assets/hospital.png', Icons.local_hospital_rounded),
+  
     ];
 
     return _ResponsiveGrid(
@@ -713,11 +713,9 @@ class _SuperAppGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final items = <_ServiceLite>[
-      _ServiceLite('gym', 'Gym', '—', '', Icons.fitness_center_rounded),
-      _ServiceLite('barbershop', 'Barbershop', '—', '', Icons.content_cut_rounded),
-      _ServiceLite('salon', 'Salon', '—', '', Icons.brush_rounded),
-      _ServiceLite('hostels', 'Hostels', '—', '', Icons.bed_rounded),
-      _ServiceLite('hotels', 'Hotels', '—', '', Icons.apartment_rounded),
+      _ServiceLite('gym', 'Gym', '—', 'assets/gym.jpg', Icons.fitness_center_rounded),
+      _ServiceLite('Hair Salon', 'Hair Salon', '—', 'assets/barber.webp', Icons.content_cut_rounded),
+      _ServiceLite('courier', 'vero Courier', '—', 'assets/vero_courier.png', Icons.local_shipping_rounded),
     ];
     return _ResponsiveGrid(
       items: items,

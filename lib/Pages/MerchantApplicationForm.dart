@@ -68,6 +68,8 @@ class MerchantApplicationForm extends StatelessWidget {
   }
 }
 
+
+
 class BecomeDriverWidget extends StatelessWidget {
   const BecomeDriverWidget({Key? key}) : super(key: key);
 

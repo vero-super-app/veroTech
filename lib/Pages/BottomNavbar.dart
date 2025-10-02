@@ -1,3 +1,4 @@
+// lib/Pages/bottom_navbar.dart
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -26,16 +27,15 @@ class _BottomnavbarState extends State<Bottomnavbar> {
       CartService('https://vero-backend.onrender.com');
   bool _isLoggedIn = false;
 
-  // Brand vibe
-  static const Color _brandGreen = Color(0xFF16A34A); // green-600
-  static const Color _brandDeep = Color(0xFF065F46);  // emerald-800
-  static const Color _brandGlow = Color(0xFFBBF7D0);  // green-100
+  // ====== Brand (ORANGE) ======
+  static const Color _brandOrange     = Color(0xFFFF8A00); // primary
+  static const Color _brandOrangeDark = Color(0xFFE07000); // deeper shade
+  static const Color _brandOrangeGlow = Color(0xFFFFE2BF); // soft glow
 
   @override
   void initState() {
     super.initState();
 
-    // init pages immediately to avoid late-init issues during first build
     _pages = [
       Vero360Homepage(email: widget.email),
       MarketPage(cartService: cartService),
@@ -104,12 +104,13 @@ class _BottomnavbarState extends State<Bottomnavbar> {
               _NavItemData(icon: Icons.message_rounded, label: "Messages"),
               _NavItemData(icon: Icons.person_rounded, label: "Profile"),
             ],
+            // ORANGE selected pill
             selectedGradient: const LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              colors: [_brandGreen, _brandDeep],
+              colors: [_brandOrange, _brandOrangeDark],
             ),
-            glowColor: _brandGlow,
+            glowColor: _brandOrangeGlow,
             selectedIconColor: Colors.white,
             unselectedIconColor: Colors.black87,
             unselectedLabelColor: Colors.black54,
@@ -161,7 +162,7 @@ class _GlassPillNavBar extends StatelessWidget {
             ),
           ),
 
-          // Subtle gradient + shadow
+          // Subtle gradient + shadow (kept neutral so pill pops)
           Container(
             height: 74,
             decoration: BoxDecoration(
@@ -229,9 +230,8 @@ class _AnimatedNavButton extends StatelessWidget {
     return Center(
       child: LayoutBuilder(
         builder: (context, constraints) {
-          // Prevent overflow: if the per-tab width is tight, hide the label
           final double w = constraints.maxWidth;
-          final bool canShowLabel = selected && w >= 84; // threshold that fits icon+text safely
+          final bool canShowLabel = selected && w >= 84;
 
           return InkWell(
             onTap: onTap,
@@ -258,7 +258,6 @@ class _AnimatedNavButton extends StatelessWidget {
                       ]
                     : null,
               ),
-              // Make the pill never exceed available width
               constraints: const BoxConstraints(minHeight: 44),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
@@ -277,8 +276,7 @@ class _AnimatedNavButton extends StatelessWidget {
                       ),
                     ),
                   ),
-
-                  // Label (auto-hide on tight widths to avoid overflow)
+                  // Label
                   AnimatedSwitcher(
                     duration: const Duration(milliseconds: 200),
                     switchInCurve: Curves.easeOutCubic,
@@ -288,24 +286,9 @@ class _AnimatedNavButton extends StatelessWidget {
                             key: const ValueKey('label'),
                             padding: const EdgeInsets.only(left: 8),
                             child: ConstrainedBox(
-                              constraints: BoxConstraints(
-                                maxWidth: w - 40, // keep it inside tab width
-                              ),
-                              child: AnimatedOpacity(
-                                duration: const Duration(milliseconds: 180),
-                                opacity: 1,
-                                child: Text(
-                                  data.label,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.fade,
-                                  softWrap: false,
-                                  style: const TextStyle(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w700,
-                                    color: Colors.white,
-                                    letterSpacing: 0.2,
-                                  ),
-                                ),
+                              constraints: BoxConstraints(maxWidth: w - 40),
+                              child: const Text(
+                                '',
                               ),
                             ),
                           )
@@ -315,6 +298,24 @@ class _AnimatedNavButton extends StatelessWidget {
                             height: 0,
                           ),
                   ),
+                  if (canShowLabel)
+                    const SizedBox(width: 8),
+                  if (canShowLabel)
+                    ConstrainedBox(
+                      constraints: BoxConstraints(maxWidth: w - 40),
+                      child: Text(
+                        data.label,
+                        maxLines: 1,
+                        overflow: TextOverflow.fade,
+                        softWrap: false,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                          letterSpacing: 0.2,
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),

@@ -1,4 +1,7 @@
+// lib/screens/register_screen.dart
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:vero360_app/Pages/MerchantApplicationForm.dart';
 import 'package:vero360_app/services/auth_service.dart';
 import 'package:vero360_app/toasthelper.dart';
 
@@ -10,6 +13,7 @@ class AppColors {
 }
 
 enum VerifyMethod { email, phone }
+enum UserRole { customer, merchant }
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -33,11 +37,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool _agree = false;
 
   VerifyMethod _method = VerifyMethod.email;
+  UserRole _role = UserRole.customer;
+
+  bool _sending = false;
   bool _otpSent = false;
   bool _verifying = false;
-  bool _sending = false;
   bool _registering = false;
-  bool _verified = false;
 
   @override
   void dispose() {
@@ -50,98 +55,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
     super.dispose();
   }
 
-  // --------- FLOW ACTIONS ---------
-  Future<void> _sendCode() async {
-    if (!(_formKey.currentState?.validate() ?? false)) return;
+  // ---------- VALIDATORS ----------
+  String? _validateName(String? v) =>
+      (v == null || v.trim().isEmpty) ? 'Name is required' : null;
 
-    final identifier = _method == VerifyMethod.email
-        ? _email.text.trim()
-        : _phone.text.trim();
-
-    setState(() {
-      _sending = true;
-      _otpSent = false;
-      _verified = false;
-    });
-
-    try {
-      final ok = await AuthService().sendOtp(identifier, context);
-      if (ok) {
-        _otpSent = true;
-      }
-    } catch (e) {
-      ToastHelper.showCustomToast(context, ' code not sent: $e', isSuccess: false, errorMessage: '');
-    } finally {
-      if (mounted) setState(() => _sending = false);
-    }
-  }
-
-  Future<void> _verifyAndRegister() async {
-    if (!_agree) {
-      ToastHelper.showCustomToast(
-        context,
-        'Please agree to the Terms & Privacy',
-        isSuccess: false, errorMessage: '',
-      );
-      return;
-    }
-
-    // Full form validation (name/email/phone/password/confirm)
-    if (!(_formKey.currentState?.validate() ?? false)) return;
-
-    final identifier = _method == VerifyMethod.email
-        ? _email.text.trim()
-        : _phone.text.trim();
-
-    if (!_otpSent) {
-      ToastHelper.showCustomToast(context, 'Please request a code first', isSuccess: false, errorMessage: '');
-      return;
-    }
-    if (_code.text.trim().isEmpty) {
-      ToastHelper.showCustomToast(context, 'Enter the verification code', isSuccess: false, errorMessage: '');
-      return;
-    }
-
-    // Step 1: verify code
-    setState(() => _verifying = true);
-    try {
-      final ok = await AuthService().verifyOtp(identifier, _code.text.trim(), context);
-      if (!ok) {
-        setState(() => _verified = false);
-        return;
-      }
-      setState(() => _verified = true);
-    } catch (e) {
-      ToastHelper.showCustomToast(context, ' Verification error: $e', isSuccess: false, errorMessage: '');
-      setState(() => _verified = false);
-      return;
-    } finally {
-      if (mounted) setState(() => _verifying = false);
-    }
-
-    // Step 2: register
-    setState(() => _registering = true);
-    try {
-      final ok = await AuthService().registerUser(
-        name: _name.text.trim(),
-        email: _email.text.trim(),
-        phone: _phone.text.trim(), // normalized inside service to +265
-        password: _password.text,
-        context: context,
-      );
-      if (ok && mounted) {
-        // You can also navigate to LoginScreen, if you prefer:
-        // Navigator.pop(context);
-        Navigator.of(context).maybePop();
-      }
-    } catch (e) {
-      ToastHelper.showCustomToast(context, ' Registration error: $e', isSuccess: false, errorMessage: '');
-    } finally {
-      if (mounted) setState(() => _registering = false);
-    }
-  }
-
-  // --------- VALIDATORS ---------
   String? _validateEmail(String? v) {
     final s = v?.trim() ?? '';
     if (s.isEmpty) return 'Email is required';
@@ -149,22 +66,19 @@ class _RegisterScreenState extends State<RegisterScreen> {
     return ok ? null : 'Enter a valid email';
   }
 
-  // Accept 10-digit local (08/09xxxxxxxx) OR E.164 +2658/9xxxxxxxx
   String? _validatePhone(String? v) {
     final s = v?.trim() ?? '';
     if (s.isEmpty) return 'Mobile number is required';
     final digits = s.replaceAll(RegExp(r'\D'), '');
     final isLocal = RegExp(r'^(08|09)\d{8}$').hasMatch(digits);
     final isE164  = RegExp(r'^\+265[89]\d{8}$').hasMatch(s);
-    if (!isLocal && !isE164) {
-      return 'Use 08/09xxxxxxxx or +2659xxxxxxxx';
-    }
+    if (!isLocal && !isE164) return 'Use 08/09xxxxxxxx or +2659xxxxxxxx';
     return null;
   }
 
   String? _validatePassword(String? v) {
     if (v == null || v.isEmpty) return 'Password is required';
-    if (v.length < 6) return 'Must be at least 6 characters';
+    if (v.length < 8) return 'Must be at least 8 characters';
     return null;
   }
 
@@ -179,7 +93,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
     required String hint,
     required IconData icon,
     Widget? trailing,
-    TextInputType? keyboard,
   }) {
     return InputDecoration(
       labelText: label,
@@ -200,10 +113,115 @@ class _RegisterScreenState extends State<RegisterScreen> {
     );
   }
 
+  // ---------- ACTIONS ----------
+  Future<void> _sendCode() async {
+    if (!(_formKey.currentState?.validate() ?? false)) return;
+
+    setState(() {
+      _sending = true;
+      _otpSent = false;
+    });
+
+    try {
+      final method = _method == VerifyMethod.email ? 'email' : 'phone';
+      final ok = await AuthService().requestOtp(
+        channel: method,
+        email: method == 'email' ? _email.text.trim() : null,
+        phone: method == 'phone' ? _phone.text.trim() : null,
+        context: context,
+      );
+      if (ok) setState(() => _otpSent = true);
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  Future<void> _verifyAndRegister() async {
+    if (!_agree) {
+      ToastHelper.showCustomToast(
+        context,
+        'Please agree to the Terms & Privacy',
+        isSuccess: false,
+        errorMessage: '',
+      );
+      return;
+    }
+
+    if (!(_formKey.currentState?.validate() ?? false)) return;
+
+    if (!_otpSent) {
+      ToastHelper.showCustomToast(context, 'Please request a code first',
+          isSuccess: false, errorMessage: '');
+      return;
+    }
+    if (_code.text.trim().isEmpty) {
+      ToastHelper.showCustomToast(context, 'Enter the verification code',
+          isSuccess: false, errorMessage: '');
+      return;
+    }
+
+    final preferred = _method == VerifyMethod.email ? 'email' : 'phone';
+    final identifier =
+        preferred == 'email' ? _email.text.trim() : _phone.text.trim();
+
+    // Step 1: verify code → get ticket (or 'verified')
+    setState(() => _verifying = true);
+    String? ticket;
+    try {
+      ticket = await AuthService().verifyOtpGetTicket(
+        identifier: identifier,
+        code: _code.text.trim(),
+        context: context,
+      );
+    } finally {
+      if (mounted) setState(() => _verifying = false);
+    }
+    if (ticket == null) return;
+
+    // Step 2: create account with ticket (ticket optional; backend may ignore)
+    setState(() => _registering = true);
+    try {
+      final resp = await AuthService().registerUser(
+        name: _name.text.trim(),
+        email: _email.text.trim(),
+        phone: _phone.text.trim(),
+        password: _password.text,
+        role: _role == UserRole.merchant ? 'merchant' : 'customer',
+        profilePicture: '',
+        preferredVerification: preferred,
+        verificationTicket: ticket,
+        context: context,
+      );
+
+      if (resp != null && mounted) {
+        if (_role == UserRole.merchant) {
+          // save token so merchant application calls are authorized
+          final token = resp['access_token']?.toString();
+          if (token != null) {
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.setString('token', token);
+            await prefs.setString('jwt_token', token);
+          }
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(
+              builder: (_) => MerchantApplicationForm(),
+            ),
+          );
+        } else {
+          Navigator.of(context).maybePop(); // back to login
+        }
+      }
+    } finally {
+      if (mounted) setState(() => _registering = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final canSend = (_formKey.currentState?.validate() ?? false)
-        && (_method == VerifyMethod.email ? _email.text.trim().isNotEmpty : _phone.text.trim().isNotEmpty);
+    final canSend = (_formKey.currentState?.validate() ?? false) &&
+        (_method == VerifyMethod.email
+            ? _email.text.trim().isNotEmpty
+            : _phone.text.trim().isNotEmpty);
 
     return Scaffold(
       body: Stack(
@@ -218,7 +236,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
               ),
             ),
           ),
-          // decorative blobs
           const Positioned(right: -50, top: -30, child: _Blob(size: 220, color: Color(0x33FF8A00))),
           const Positioned(left: -70, top: 200, child: _Blob(size: 180, color: Color(0x2264D2FF))),
           const Positioned(right: -40, bottom: -40, child: _Blob(size: 160, color: Color(0x2245C4B0))),
@@ -232,7 +249,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      // Avatar / brand mark
+                      // Brand avatar
                       Container(
                         padding: const EdgeInsets.all(3),
                         decoration: BoxDecoration(
@@ -298,44 +315,66 @@ class _RegisterScreenState extends State<RegisterScreen> {
                               offset: const Offset(0, 10),
                             ),
                           ],
-                          border: Border.all(color: const Color(0x11FFFFFF)),
                         ),
-                        padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
+                        padding: const EdgeInsets.all(18),
                         child: Form(
                           key: _formKey,
                           onChanged: () => setState(() {}),
                           child: Column(
                             children: [
-                              // Name
+                              // Account type
+                              Align(
+                                alignment: Alignment.centerLeft,
+                                child: Text(
+                                  'Account type',
+                                  style: TextStyle(
+                                    color: Colors.black.withOpacity(0.7),
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Row(
+                                children: [
+                                  ChoiceChip(
+                                    label: const Text('Customer'),
+                                    selected: _role == UserRole.customer,
+                                    onSelected: (_) => setState(() => _role = UserRole.customer),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  ChoiceChip(
+                                    label: const Text('Merchant'),
+                                    selected: _role == UserRole.merchant,
+                                    onSelected: (_) => setState(() => _role = UserRole.merchant),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 16),
+
+                              // Inputs
                               TextFormField(
                                 controller: _name,
                                 textInputAction: TextInputAction.next,
                                 decoration: _fieldDecoration(
-                                  label: 'Full name',
-                                  hint: 'John Banda',
+                                  label: 'Your name',
+                                  hint: 'vero',
                                   icon: Icons.person_outline,
                                 ),
-                                validator: (v) => (v == null || v.trim().isEmpty)
-                                    ? 'Name is required'
-                                    : null,
+                                validator: _validateName,
                               ),
                               const SizedBox(height: 14),
-
-                              // Email
                               TextFormField(
                                 controller: _email,
                                 keyboardType: TextInputType.emailAddress,
                                 textInputAction: TextInputAction.next,
                                 decoration: _fieldDecoration(
                                   label: 'Email',
-                                  hint: 'you@example.com',
+                                  hint: 'you@vero.com',
                                   icon: Icons.alternate_email,
                                 ),
                                 validator: _validateEmail,
                               ),
                               const SizedBox(height: 14),
-
-                              // Phone
                               TextFormField(
                                 controller: _phone,
                                 keyboardType: TextInputType.phone,
@@ -348,8 +387,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                 validator: _validatePhone,
                               ),
                               const SizedBox(height: 14),
-
-                              // Password
                               TextFormField(
                                 controller: _password,
                                 obscureText: _obscure1,
@@ -367,8 +404,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                 validator: _validatePassword,
                               ),
                               const SizedBox(height: 14),
-
-                              // Confirm
                               TextFormField(
                                 controller: _confirm,
                                 obscureText: _obscure2,
@@ -392,26 +427,18 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                   Checkbox(
                                     value: _agree,
                                     onChanged: (v) => setState(() => _agree = v ?? false),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(4),
-                                    ),
-                                    side: const BorderSide(color: Color(0xFFBDBDBD)),
                                   ),
                                   const Expanded(
                                     child: Text(
                                       'I agree to the Terms & Privacy Policy',
-                                      style: TextStyle(
-                                        color: AppColors.body,
-                                        fontWeight: FontWeight.w600,
-                                      ),
+                                      style: TextStyle(color: AppColors.body, fontWeight: FontWeight.w600),
                                     ),
                                   ),
                                 ],
                               ),
-
                               const SizedBox(height: 12),
 
-                              // Verify method selector
+                              // Verify via
                               Align(
                                 alignment: Alignment.centerLeft,
                                 child: Text(
@@ -430,9 +457,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                     selected: _method == VerifyMethod.email,
                                     onSelected: (_) => setState(() {
                                       _method = VerifyMethod.email;
-                                      _otpSent = false;
-                                      _verified = false;
                                       _code.clear();
+                                      _otpSent = false;
                                     }),
                                   ),
                                   const SizedBox(width: 8),
@@ -441,9 +467,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                     selected: _method == VerifyMethod.phone,
                                     onSelected: (_) => setState(() {
                                       _method = VerifyMethod.phone;
-                                      _otpSent = false;
-                                      _verified = false;
                                       _code.clear();
+                                      _otpSent = false;
                                     }),
                                   ),
                                 ],
@@ -451,7 +476,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
                               const SizedBox(height: 12),
 
-                              // Send code + input code (only after sent)
+                              // Send code
                               Row(
                                 children: [
                                   Expanded(
@@ -461,16 +486,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                           : _sendCode,
                                       icon: const Icon(Icons.sms_outlined),
                                       label: Text(_sending ? 'Sending…' : 'Send code'),
-                                      style: OutlinedButton.styleFrom(
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(12),
-                                        ),
-                                        padding: const EdgeInsets.symmetric(vertical: 12),
-                                      ),
                                     ),
                                   ),
                                 ],
                               ),
+
                               if (_otpSent) ...[
                                 const SizedBox(height: 10),
                                 TextFormField(
@@ -486,14 +506,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
                               const SizedBox(height: 16),
 
-                              // Create account (Verify & Register)
+                              // Verify & Create
                               SizedBox(
                                 width: double.infinity,
                                 height: 50,
                                 child: ElevatedButton(
                                   onPressed: (_registering || _verifying) ? null : _verifyAndRegister,
                                   style: ElevatedButton.styleFrom(
-                                    elevation: 0,
                                     backgroundColor: AppColors.brandOrange,
                                     shape: RoundedRectangleBorder(
                                       borderRadius: BorderRadius.circular(14),
@@ -519,21 +538,34 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       ),
 
                       const SizedBox(height: 16),
-                      Wrap(
-                        spacing: 6,
-                        alignment: WrapAlignment.center,
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.baseline,
+                        textBaseline: TextBaseline.alphabetic,
                         children: [
                           const Text(
                             "Already have an account?",
-                            style: TextStyle(color: AppColors.body, fontWeight: FontWeight.w600),
+                            style: TextStyle(
+                              color: AppColors.body,
+                              fontWeight: FontWeight.w600,
+                              height: 1.0,
+                            ),
                           ),
+                          const SizedBox(width: 6),
                           TextButton(
                             onPressed: () => Navigator.pop(context),
+                            style: TextButton.styleFrom(
+                              padding: EdgeInsets.zero,
+                              minimumSize: const Size(0, 0),
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              alignment: Alignment.centerLeft,
+                            ),
                             child: const Text(
                               'Sign in',
                               style: TextStyle(
                                 color: AppColors.brandOrange,
                                 fontWeight: FontWeight.w800,
+                                height: 1.0,
                               ),
                             ),
                           ),

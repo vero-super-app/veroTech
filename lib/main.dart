@@ -106,10 +106,11 @@ class _MyAppState extends State<MyApp> {
       initialRoute: '/Bottomnavbar',
       routes: {
         '/Bottomnavbar': (context) => const Bottomnavbar(email: ''),
+        '/marketplace': (context) => const Bottomnavbar(email: ''),
         '/signup': (context) => const RegisterScreen(),
         '/login': (context) => const LoginScreen(),
         '/cartpage': (context) =>
-            _authGuard(context, CartPage(cartService: CartService('https://vero-backend.onrender.com/cart'))),
+            _authGuard(context, CartPage(cartService: CartService('https://vero-backend.onrender.com'))),
       },
     );
   }
