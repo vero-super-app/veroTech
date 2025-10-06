@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:vero360_app/services/api_config.dart';
 
 import 'homepage.dart';
 import '../Pages/marketPlace.dart';
@@ -23,8 +24,9 @@ class Bottomnavbar extends StatefulWidget {
 class _BottomnavbarState extends State<Bottomnavbar> {
   int _selectedIndex = 0;
   late final List<Widget> _pages;
-  final CartService cartService =
-      CartService('https://vero-backend.onrender.com');
+
+final cartService = CartService('https://vero-backend.onrender.com', apiPrefix: 'api');
+
   bool _isLoggedIn = false;
 
   // ====== Brand (ORANGE) ======
