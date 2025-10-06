@@ -60,7 +60,7 @@ flutter:
   uses-material-design: true
 
   assets:
-    - assets/logo_mark.jpg
+    - assets/logo_mark.png
     - assets/veggies.jpg
     - assets/basket.jpg
     - assets/shoes/airforce.jpg

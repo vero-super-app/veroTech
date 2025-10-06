@@ -123,7 +123,7 @@ class AuthService {
       (user['profilepicture'] ?? user['profilePicture'] ?? '').toString());
 
   await ApiConfig.setBase(await _base());
-  _toast(context, '✅ Logged in successfully', success: true);
+  _toast(context, 'Logged in successfully', success: true);
   return {'token': token, 'user': user};
 }
   }
@@ -163,7 +163,7 @@ class AuthService {
 
     debugPrint('requestOtp($channel) -> ${res.statusCode} ${res.body}');
     if (_is2xx(res.statusCode)) {
-      _toast(context, '📨 Verification code sent', success: true);
+      _toast(context, ' Verification code sent', success: true);
       return true;
     }
 
@@ -197,7 +197,7 @@ class AuthService {
     if (_is2xx(res.statusCode)) {
       final data = _safeJson(res.body);
       final ticket = data['ticket']?.toString();
-      _toast(context, '✅ Code verified', success: true);
+      _toast(context, 'Code verified', success: true);
       return (ticket != null && ticket.isNotEmpty) ? ticket : 'verified';
     }
 

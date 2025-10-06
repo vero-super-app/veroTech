@@ -118,7 +118,7 @@ class _Vero360HomepageState extends State<Vero360Homepage> {
                 padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
                 child: Column(
                   children: [
-                    const _BrandBar(appName: 'Vero360', logoPath: 'assets/logo_mark.jpg'),
+                    const _BrandBar(appName: 'Vero360', logoPath: 'assets/logo_mark.png'),
                     const SizedBox(height: 12),
                     _TopSection(
                       animateIn: _animateIn,

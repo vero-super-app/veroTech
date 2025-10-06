@@ -9,7 +9,7 @@ class ToastHelper {
     String message, {
     bool isSuccess = true,
     Duration duration = const Duration(seconds: 3),
-    String assetPath = 'assets/logo_mark.jpg', required String errorMessage, // default logo path
+    String assetPath = 'assets/logo_mark.png', required String errorMessage, // default logo path
   }) {
     final fToast = FToast()..init(context);
 

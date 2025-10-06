@@ -124,7 +124,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         backgroundColor: Colors.white,
                         child: ClipOval(
                           child: Image.asset(
-                            'assets/logo_mark.jpg',
+                            'assets/logo_mark.png',
                             width: 72,
                             height: 72,
                             fit: BoxFit.cover,
