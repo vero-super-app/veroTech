@@ -1,79 +1,117 @@
-import 'dart:async';
+// lib/services/merchantform.service.dart
 import 'dart:convert';
+import 'dart:io' show File;
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import 'package:flutter/widgets.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vero360_app/toasthelper.dart';
 
-class SellersApplicationFormService {
-  final String _baseUrl = 'http://127.0.0.1:3000/sellers/create';
+class ServiceProviderService {
+  final String baseUrl;
+  ServiceProviderService({required this.baseUrl});
 
-  Future<bool> postSellersApplicationForm(
-    Map<String, dynamic> formData,
-    BuildContext context,
-  ) async {
+  /// Multipart POST /serviceprovider
+  /// fields (strings): businessName, businessDescription, openingHours, status
+  /// files:
+  ///  - nationalIdImage  (REQUIRED)
+  ///  - logoimage        (optional)
+  Future<bool> submitServiceProviderMultipart({
+    required Map<String, String> fields,
+    required XFile nationalIdFile,
+    XFile? logoFile,
+    required BuildContext context,
+  }) async {
     try {
-      final uri = Uri.parse(_baseUrl);
-      final response = await http
-          .post(
-            uri,
-            headers: {'Content-Type': 'application/json'},
-            body: jsonEncode(formData),
-          )
-          .timeout(const Duration(seconds: 15));
-
-      if (response.statusCode == 201) {
-        ToastHelper.showCustomToast(
-          context,
-          "Merchant Application submitted successfully ✅",
-          isSuccess: true, errorMessage: '',
-        );
-        return true;
-      } else {
-        final body = _prettyError(response.body);
-        ToastHelper.showCustomToast(
-          context,
-          "Failed to submit form ❌: $body",
-          isSuccess: false, errorMessage: '',
-        );
-        throw Exception(
-          'Failed: ${response.statusCode} - ${response.reasonPhrase}',
-        );
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('jwt_token') ?? prefs.getString('token') ?? '';
+      if (token.isEmpty) {
+        ToastHelper.showCustomToast(context, 'Please log in again', isSuccess: false, errorMessage: '');
+        return false;
       }
-    } on http.ClientException catch (e) {
+
+      // Strictly only accepted keys (whitelist to avoid 400 "should not exist")
+      final allowed = <String>{
+        'businessName',
+        'businessDescription',
+        'openingHours',
+        'status',
+      };
+      final sanitized = <String, String>{};
+      fields.forEach((k, v) {
+        if (allowed.contains(k) && v.trim().isNotEmpty) {
+          sanitized[k] = v.trim();
+        }
+      });
+
+      final uri = Uri.parse('$baseUrl/serviceprovider');
+      final req = http.MultipartRequest('POST', uri)
+        ..headers.addAll({
+          'Authorization': 'Bearer $token',
+          'accept': '*/*',
+        })
+        ..fields.addAll(sanitized);
+
+      // Attach files with EXACT Multer field names:
+      // nationalIdImage (required)
+      if (kIsWeb) {
+        final bytes = await nationalIdFile.readAsBytes();
+        req.files.add(http.MultipartFile.fromBytes(
+          'nationalIdImage',
+          bytes,
+          filename: nationalIdFile.name.isEmpty ? 'national-id.jpg' : nationalIdFile.name,
+        ));
+        if (logoFile != null) {
+          final lbytes = await logoFile.readAsBytes();
+          req.files.add(http.MultipartFile.fromBytes(
+            'logoimage',
+            lbytes,
+            filename: logoFile.name.isEmpty ? 'logo.jpg' : logoFile.name,
+          ));
+        }
+      } else {
+        req.files.add(await http.MultipartFile.fromPath('nationalIdImage', nationalIdFile.path));
+        if (logoFile != null) {
+          req.files.add(await http.MultipartFile.fromPath('logoimage', logoFile.path));
+        }
+      }
+
+      final streamed = await req.send();
+      final res = await http.Response.fromStream(streamed);
+
+      if (res.statusCode == 200 || res.statusCode == 201) {
+        return true;
+      }
+
+      // Friendly errors (400 validation / 413 big images / others)
+      String message = _extractMessage(res.body);
+      if (res.statusCode == 413) {
+        message = 'Images are too large. Please pick a smaller photo.';
+      }
       ToastHelper.showCustomToast(
         context,
-        'Client error ❌: $e',
-        isSuccess: false, errorMessage: '',
+        'Failed to submit: ${res.statusCode} ${message}',
+        isSuccess: false,
+        errorMessage: '',
       );
-      throw Exception('Client-side issue: $e');
-    } on TimeoutException {
-      ToastHelper.showCustomToast(
-        context,
-        'Request timed out ⏳. Please try again.',
-        isSuccess: false, errorMessage: '',
-      );
-      throw Exception('Timeout');
+      return false;
     } catch (e) {
-      ToastHelper.showCustomToast(
-        context,
-        'Unexpected error ❌: $e',
-        isSuccess: false, errorMessage: '',
-      );
-      throw Exception('Unexpected: $e');
+      ToastHelper.showCustomToast(context, 'Network error: $e', isSuccess: false, errorMessage: '');
+      return false;
     }
   }
 
-  String _prettyError(String body) {
+  String _extractMessage(String body) {
     try {
       final parsed = jsonDecode(body);
       if (parsed is Map) {
-        return parsed['message']?.toString() ??
-            parsed['error']?.toString() ??
-            body;
+        final m = parsed['message'];
+        if (m is List) return m.join(', ');
+        if (m is String) return m;
+        return parsed['error']?.toString() ?? body;
       }
-      if (parsed is List && parsed.isNotEmpty) {
-        return parsed.first.toString();
-      }
+      if (parsed is List) return parsed.join(', ');
       return body;
     } catch (_) {
       return body;

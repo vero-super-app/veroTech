@@ -1345,7 +1345,7 @@ class BecomeSellerWidget extends StatelessWidget {
           onPressed: () => Navigator.push(
               context,
               MaterialPageRoute(
-                  builder: (_) => const MerchantApplicationForm())),
+                  builder: (_) => MerchantApplicationForm(onFinished: () async { return; },))),
           style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.brandOrange,
               foregroundColor: Colors.white,

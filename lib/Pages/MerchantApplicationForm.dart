@@ -1,693 +1,354 @@
+// lib/Pages/MerchantApplicationForm.dart
 import 'dart:io';
-import 'dart:math';
-import 'package:fluttertoast/fluttertoast.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
 import 'package:image_picker/image_picker.dart';
-import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:vero360_app/toasthelper.dart'; // Import to format the date
+import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:vero360_app/services/api_config.dart';
+import 'package:vero360_app/services/merchantform.service.dart';
+import 'package:vero360_app/Pages/merchantbottomnavbar.dart';
+import 'package:vero360_app/toasthelper.dart';
 
-class MerchantApplicationForm extends StatelessWidget {
-  const MerchantApplicationForm({Key? key}) : super(key: key);
+class AppColors {
+  static const brand = Color(0xFFFF8A00);
+  static const sub = Color(0xFF6B6B6B);
+  static const bgTop = Color(0xFFFFF4E9);
+}
+
+class MerchantApplicationForm extends StatefulWidget {
+  final Future<void> Function()? onFinished;
+  const MerchantApplicationForm({Key? key, this.onFinished}) : super(key: key);
 
   @override
-  Widget build(BuildContext context) {
-    return Card(
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
-      elevation: 5,
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.shopping_cart_outlined,
-              size: 40,
-              color: Colors.orange,
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              "Become a merchant",
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              "You can also sell on our app. Join us and start selling your products easily.",
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 16, color: Colors.grey),
-            ),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: () {
-                // Navigate to ApplyNowPage
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => ApplyNowPage()),
-                );
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.green, // Button background color
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-              ),
-              child: const Text("Apply Now"),
-            ),
-          ],
-        ),
-      ),
-    );
+  State<MerchantApplicationForm> createState() => _MerchantApplicationFormState();
+}
+
+class _MerchantApplicationFormState extends State<MerchantApplicationForm> {
+  final _form = GlobalKey<FormState>();
+  final _businessName = TextEditingController();
+  final _businessDescription = TextEditingController();
+
+  TimeOfDay? _opensAt;
+  TimeOfDay? _closesAt;
+
+  XFile? _logoFile; // optional
+  XFile? _nidFile;  // required
+
+  bool _submitting = false;
+  bool _agreed = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _prefillBusinessName();
   }
-}
 
-
-
-class BecomeDriverWidget extends StatelessWidget {
-  const BecomeDriverWidget({Key? key}) : super(key: key);
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
-      elevation: 5,
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            Icon(
-              Icons.directions_car_outlined,
-              size: 40,
-              color: Colors.orange,
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              "Become a Driver",
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              "Join our network as a driver and start earning by delivering with us.",
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 16, color: Colors.grey),
-            ),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: () {
-                // Navigate to ApplyNowPage
-              //  Navigator.push(
-                 // context,
-                 // MaterialPageRoute(builder: (context) => DriverApplyNowPage()),
-               // );
-              },
-              child: const Text("Apply Now"),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.orange, // Background color
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-//applay now page starts here
-
-
-
-class ApplyNowPage extends StatefulWidget {
-  @override
-  _ApplyNowPageState createState() => _ApplyNowPageState();
-}
-
-class _ApplyNowPageState extends State<ApplyNowPage> {
-  final _formKey = GlobalKey<FormState>();
-
-  // Controllers for form fields
-  final TextEditingController _firstNameController = TextEditingController();
-  final TextEditingController _surnameController = TextEditingController();
-  final TextEditingController _nationalIdController = TextEditingController();
-  final TextEditingController _businessNameController = TextEditingController();
-  final TextEditingController _phoneNumberController = TextEditingController();
-  final TextEditingController _addressController = TextEditingController();
-  final TextEditingController _businessDescriptionController = TextEditingController();
-
-  bool _termsAccepted = false;
-
-  Future<void> _submitApplication() async {
-    final url = Uri.parse('http://127.0.0.1:3000/sellers/create'); // Replace with your API endpoint
-
-    // NationalID is a string (no conversion needed)
-    final nationalId = _nationalIdController.text;
-
-    // Get the current date in ISO 8601 format
-    final currentDate = DateFormat("yyyy-MM-dd HH:mm:ss").format(DateTime.now());
-
-    // Create request body
-    final body = json.encode({
-      'FirstName': _firstNameController.text,
-      'Surname': _surnameController.text,
-      'NationalID': nationalId,
-      'BusinessName': _businessNameController.text,
-      'PhoneNumber': _phoneNumberController.text,
-      'Address': _addressController.text,
-      'BusinessDescription': _businessDescriptionController.text,
-      'ApplicationDate': currentDate,
-    });
-
-    try {
-      final response = await http.post(
-        url,
-        headers: {'Content-Type': 'application/json'},
-        body: body,
-      );
-
-      if (response.statusCode == 200 || response.statusCode == 201) {
-      ToastHelper.showCustomToast(context, "Merchant Application submitted successfully ✅", isSuccess: true, errorMessage: '');
-        _clearForm();
-      } else {
-        _showToast('Failed to submit application: ${response.body}');
-          ToastHelper.showCustomToast(context, "Failed to submit application form", isSuccess: false, errorMessage: '');
-      }
-    } catch (error) {
-       ToastHelper.showCustomToast(context, "Submission failed check your internet", isSuccess: false, errorMessage: '');
-     // _showToast('An error occurred: $error');
+  Future<void> _prefillBusinessName() async {
+    final prefs = await SharedPreferences.getInstance();
+    final name = prefs.getString('name') ?? prefs.getString('fullName') ?? '';
+    if (name.isNotEmpty && mounted) {
+      _businessName.text = "${name.split(' ').first}'s Shop";
     }
   }
 
-  void _clearForm() {
-    _formKey.currentState?.reset();
-    _firstNameController.clear();
-    _surnameController.clear();
-    _nationalIdController.clear();
-    _businessNameController.clear();
-    _phoneNumberController.clear();
-    _addressController.clear();
-    _businessDescriptionController.clear();
+  @override
+  void dispose() {
+    _businessName.dispose();
+    _businessDescription.dispose();
+    super.dispose();
+  }
+
+  String _fmtTime(TimeOfDay t) {
+    final now = DateTime.now();
+    final dt = DateTime(now.year, now.month, now.day, t.hour, t.minute);
+    return DateFormat('HH:mm').format(dt);
+  }
+
+  String get _openingHoursStr {
+    if (_opensAt == null || _closesAt == null) return '';
+    return '${_fmtTime(_opensAt!)} - ${_fmtTime(_closesAt!)}';
+  }
+
+  Future<void> _pickTime({required bool opening}) async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: opening
+          ? (_opensAt ?? const TimeOfDay(hour: 8, minute: 0))
+          : (_closesAt ?? const TimeOfDay(hour: 17, minute: 0)),
+    );
+    if (picked != null && mounted) {
+      setState(() {
+        if (opening) _opensAt = picked; else _closesAt = picked;
+      });
+    }
+  }
+
+  Future<void> _pickImage({required bool isLogo}) async {
+    final picker = ImagePicker();
+    final picked = await picker.pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 1200,
+      imageQuality: 75, // keep small to avoid 413
+    );
+    if (picked == null) return;
     setState(() {
-      _termsAccepted = false;
+      if (isLogo) _logoFile = picked; else _nidFile = picked;
     });
   }
 
-  void _showToast(String message) {
-    Fluttertoast.showToast(
-      msg: message,
-      toastLength: Toast.LENGTH_LONG,
-      gravity: ToastGravity.CENTER,
-      backgroundColor: Colors.green,
-      textColor: Colors.white,
-      fontSize: 16.0,
+  InputDecoration _dec(String label) {
+    return InputDecoration(
+      labelText: label,
+      filled: true,
+      fillColor: Colors.white,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: AppColors.brand, width: 1.2),
+      ),
     );
+  }
+
+  /// Always navigate to merchant home from THIS widget’s context.
+  Future<void> _goToMerchantHomeAfterSuccess() async {
+    if (!mounted) return;
+    final prefs = await SharedPreferences.getInstance();
+    final emailOrPhone = prefs.getString('email') ?? prefs.getString('phone') ?? '';
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => MerchantBottomnavbar(email: emailOrPhone)),
+        (_) => false,
+      );
+    });
+  }
+
+  Future<void> _submit() async {
+    if (!_agreed) {
+      ToastHelper.showCustomToast(context, 'You must accept the terms', isSuccess: false, errorMessage: '');
+      return;
+    }
+    if (!(_form.currentState?.validate() ?? false)) return;
+    if (_opensAt == null || _closesAt == null) {
+      ToastHelper.showCustomToast(context, 'Please select opening & closing time', isSuccess: false, errorMessage: '');
+      return;
+    }
+    if (_nidFile == null) {
+      ToastHelper.showCustomToast(context, 'Please attach your National ID photo', isSuccess: false, errorMessage: '');
+      return;
+    }
+
+    final fields = <String, String>{
+      // match backend DTO (camelCase)
+      'businessName': _businessName.text.trim(),
+      'businessDescription': _businessDescription.text.trim(),
+      'openingHours': _openingHoursStr,
+      'status': 'pending',
+    };
+
+    setState(() => _submitting = true);
+    try {
+      final base = await ApiConfig.readBase();
+      final ok = await ServiceProviderService(baseUrl: base).submitServiceProviderMultipart(
+        fields: fields,
+        nationalIdFile: _nidFile!,   // REQUIRED => sent as "nationalIdImage"
+        logoFile: _logoFile,         // optional => sent as "logoimage"
+        context: context,
+      );
+
+      if (!ok) return;
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('merchant_application_submitted', true);
+      await prefs.setBool('merchant_review_pending', true);
+      await prefs.setString('applicationStatus', 'pending');
+
+      ToastHelper.showCustomToast(context, 'Application submitted ', isSuccess: true, errorMessage: '');
+
+      // Call callback for bookkeeping only
+      try { await widget.onFinished?.call(); } catch (_) {}
+
+      // Always navigate here
+      await _goToMerchantHomeAfterSuccess();
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Become a Seller'),
-        centerTitle: true,
-        backgroundColor: Colors.orange,
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // First Name
-              _buildTextField(
-                controller: _firstNameController,
-                label: 'First Name',
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Please enter your first name';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16.0),
-
-              // Surname
-              _buildTextField(
-                controller: _surnameController,
-                label: 'Surname',
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Please enter your surname';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16.0),
-
-              // National ID
-              _buildTextField(
-                controller: _nationalIdController,
-                label: 'National ID',
-                keyboardType: TextInputType.number,
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Please enter your National ID';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16.0),
-
-              // Business Name
-              _buildTextField(
-                controller: _businessNameController,
-                label: 'Business Name',
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Please enter your Business Name';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16.0),
-
-              // Phone Number
-              _buildTextField(
-                controller: _phoneNumberController,
-                label: 'Phone Number',
-                keyboardType: TextInputType.phone,
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Please enter your phone number';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16.0),
-
-              // Address
-              _buildTextField(
-                controller: _addressController,
-                label: 'Address',
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Please enter your address';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16.0),
-
-              // Business Description
-              _buildTextField(
-                controller: _businessDescriptionController,
-                label: 'Business Description',
-                maxLines: 3,
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Please describe your business';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16.0),
-
-              // Accept Terms and Conditions
-              Row(
-                children: [
-                  Checkbox(
-                    value: _termsAccepted,
-                    onChanged: (value) {
-                      setState(() {
-                        _termsAccepted = value!;
-                      });
-                    },
-                  ),
-                  const Expanded(
-                    child: Text(
-                      'I accept the terms and conditions',
-                      style: TextStyle(fontSize: 14.0),
-                    ),
-                  ),
-                ],
-              ),
-              if (!_termsAccepted)
-                const Text(
-                  'You must accept the terms and conditions',
-                  style: TextStyle(color: Colors.red, fontSize: 12.0),
-                ),
-              const SizedBox(height: 16.0),
-
-              // Submit Button
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () {
-                    if (_formKey.currentState!.validate() && _termsAccepted) {
-                      _submitApplication();
-                    } else if (!_termsAccepted) {
-                  
-                     ToastHelper.showCustomToast(context, "You must accept the terms and conditions", isSuccess: false, errorMessage: '');
-                    }
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green,
-                    padding: const EdgeInsets.symmetric(vertical: 14.0),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  child: const Text(
-                    'Submit Application',
-                    style: TextStyle(fontSize: 16.0),
-                  ),
-                ),
-              ),
-            ],
+      body: Stack(children: [
+        Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(begin: Alignment(0, -1), end: Alignment(0, 1), colors: [AppColors.bgTop, Colors.white]),
           ),
         ),
-      ),
+        SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(18, 12, 18, 18),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 640),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Row(children: [
+                    IconButton(onPressed: _submitting ? null : () => Navigator.of(context).maybePop(), icon: const Icon(Icons.arrow_back)),
+                    const SizedBox(width: 6),
+                    const Text('Merchant Application', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
+                  ]),
+                  const SizedBox(height: 10),
+                  _pill(Icons.verified_user_outlined, 'Fill this short form to start selling on Vero.'),
+                  const SizedBox(height: 14),
+
+                  Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.95),
+                      borderRadius: BorderRadius.circular(18),
+                      boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 24, offset: const Offset(0, 10))],
+                    ),
+                    padding: const EdgeInsets.all(16),
+                    child: Form(
+                      key: _form,
+                      child: Column(children: [
+                        TextFormField(
+                          controller: _businessName,
+                          decoration: _dec('Business name'),
+                          textInputAction: TextInputAction.next,
+                          validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: _businessDescription,
+                          decoration: _dec('Business description'),
+                          minLines: 3,
+                          maxLines: 5,
+                          validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                        ),
+                        const SizedBox(height: 12),
+
+                        Row(children: [
+                          Expanded(
+                            child: InkWell(
+                              onTap: () => _pickTime(opening: true),
+                              borderRadius: BorderRadius.circular(14),
+                              child: InputDecorator(
+                                decoration: _dec('Opens at'),
+                                child: Text(_opensAt == null ? 'Select time' : _fmtTime(_opensAt!),
+                                    style: TextStyle(color: _opensAt == null ? Colors.black45 : Colors.black87)),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: InkWell(
+                              onTap: () => _pickTime(opening: false),
+                              borderRadius: BorderRadius.circular(14),
+                              child: InputDecorator(
+                                decoration: _dec('Closes at'),
+                                child: Text(_closesAt == null ? 'Select time' : _fmtTime(_closesAt!),
+                                    style: TextStyle(color: _closesAt == null ? Colors.black45 : Colors.black87)),
+                              ),
+                            ),
+                          ),
+                        ]),
+                        const SizedBox(height: 12),
+
+                        _uploadRow(label: 'Logo image (optional)', file: _logoFile, onPick: () => _pickImage(isLogo: true)),
+                        const SizedBox(height: 12),
+                        _uploadRow(label: 'National ID photo', file: _nidFile, onPick: () => _pickImage(isLogo: false), required: true),
+                        const SizedBox(height: 12),
+
+                        Row(children: [
+                          _chip('Status: pending'),
+                          const SizedBox(width: 8),
+                          _chip('Verified: no'),
+                          const SizedBox(width: 8),
+                          _chip('Rating: 0'),
+                        ]),
+                        const SizedBox(height: 12),
+
+                        Row(children: [
+                          Checkbox(value: _agreed, onChanged: (v) => setState(() => _agreed = v ?? false)),
+                          const Expanded(child: Text('I confirm the information provided is accurate.', style: TextStyle(fontWeight: FontWeight.w600))),
+                        ]),
+                        const SizedBox(height: 6),
+
+                        SizedBox(
+                          width: double.infinity,
+                          height: 50,
+                          child: ElevatedButton.icon(
+                            onPressed: _submitting ? null : _submit,
+                            icon: const Icon(Icons.check_circle_outline),
+                            label: Text(_submitting ? 'Submitting…' : 'Submit application'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.brand,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                              foregroundColor: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ]),
+                    ),
+                  ),
+                ]),
+              ),
+            ),
+          ),
+        ),
+      ]),
     );
   }
 
-  // Helper method to build text fields
-  Widget _buildTextField({
-    required TextEditingController controller,
-    required String label,
-    TextInputType keyboardType = TextInputType.text,
-    int maxLines = 1,
-    String? Function(String?)? validator,
-  }) {
-    return TextFormField(
-      controller: controller,
-      keyboardType: keyboardType,
-      maxLines: maxLines,
-      decoration: InputDecoration(
-        labelText: label,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
+  Widget _uploadRow({required String label, required VoidCallback onPick, XFile? file, bool required = false}) {
+    return InputDecorator(
+      decoration: _dec(label),
+      child: Row(children: [
+        if (file != null)
+          ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: kIsWeb
+                ? Image.network(file.path, height: 44, width: 44, fit: BoxFit.cover)
+                : Image.file(File(file.path), height: 44, width: 44, fit: BoxFit.cover),
+          )
+        else
+          Container(
+            height: 44, width: 44,
+            decoration: BoxDecoration(color: const Color(0xFFF2F2F2), borderRadius: BorderRadius.circular(10)),
+            child: const Icon(Icons.image_outlined, color: Colors.black45),
+          ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(file == null ? (required ? 'Required' : 'Select file') : file.name,
+              maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600)),
         ),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
-      ),
-      validator: validator,
+        const SizedBox(width: 6),
+        TextButton.icon(onPressed: onPick, icon: const Icon(Icons.upload_outlined), label: const Text('Upload')),
+      ]),
+    );
+  }
+
+  Widget _pill(IconData icon, String text) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(14), boxShadow: [
+        BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 12, offset: const Offset(0, 6))
+      ]),
+      child: Row(children: [
+        Icon(icon, color: AppColors.brand),
+        const SizedBox(width: 10),
+        Expanded(child: Text(text, style: const TextStyle(color: AppColors.sub, fontWeight: FontWeight.w600))),
+      ]),
+    );
+  }
+
+  Widget _chip(String text) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(color: const Color(0xFFF5F6F9), borderRadius: BorderRadius.circular(30)),
+      child: Text(text, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
     );
   }
 }
-
-
-// drivers form
-
-// class DriverApplyNowPage extends StatefulWidget {
-//   @override
-//   _DriverApplyNowPageState createState() => _DriverApplyNowPageState();
-// }
-
-
-
-// class _DriverApplyNowPageState extends State<DriverApplyNowPage> {
-//   final _formKey = GlobalKey<FormState>();
-
-//   // Controllers for form fields
-//   final TextEditingController _firstNameController = TextEditingController();
-//   final TextEditingController _surnameController = TextEditingController();
-//   final TextEditingController _registrationNumberController = TextEditingController();
-//   final TextEditingController _nationalIdController = TextEditingController();
-//   final TextEditingController _driverLicenseNumberController = TextEditingController();
-//   final TextEditingController _phoneNumberController = TextEditingController();
-//   final TextEditingController _addressController = TextEditingController();
-//   final TextEditingController _businessDescriptionController = TextEditingController();
-
-//   File? _carImage;
-//   bool _termsAccepted = false;
-
-//   Future<void> _pickImage(ImageSource source) async {
-//     final pickedFile = await ImagePicker().pickImage(source: source);
-//     if (pickedFile != null) {
-//       setState(() {
-//         _carImage = File(pickedFile.path);
-//       });
-//     }
-//   }
-
-//   Future<void> _submitApplication() async {
-//     final url = Uri.parse('https://your-api-endpoint.com/applications'); // Replace with your API endpoint
-
-//     final body = {
-//       'firstName': _firstNameController.text,
-//       'surname': _surnameController.text,
-//       'nationalId': _nationalIdController.text,
-//       'registrationNumber': _registrationNumberController.text,
-//       'driverLicenseNumber': _driverLicenseNumberController.text,
-//       'phoneNumber': _phoneNumberController.text,
-//       'address': _addressController.text,
-//       'businessDescription': _businessDescriptionController.text,
-//     };
-
-//     try {
-//       final request = http.MultipartRequest('POST', url);
-//       body.forEach((key, value) {
-//         request.fields[key] = value;
-//       });
-
-//       if (_carImage != null) {
-//         request.files.add(
-//           await http.MultipartFile.fromPath('carImage', _carImage!.path),
-//         );
-//       }
-
-//       final response = await request.send();
-
-//       if (response.statusCode == 200 || response.statusCode == 201) {
-//         _showToast('Application submitted successfully!');
-//         _clearForm();
-//       } else {
-//         _showToast('Failed to submit application: ${response.reasonPhrase}');
-//       }
-//     } catch (error) {
-//       _showToast('An error occurred: $error');
-//     }
-//   }
-
-//   void _clearForm() {
-//     _formKey.currentState?.reset();
-//     _firstNameController.clear();
-//     _surnameController.clear();
-//     _registrationNumberController.clear();
-//     _nationalIdController.clear();
-//     _driverLicenseNumberController.clear();
-//     _phoneNumberController.clear();
-//     _addressController.clear();
-//     _businessDescriptionController.clear();
-//     setState(() {
-//       _carImage = null;
-//       _termsAccepted = false;
-//     });
-//   }
-
-//   void _showToast(String message) {
-//     Fluttertoast.showToast(
-//       msg: message,
-//       toastLength: Toast.LENGTH_LONG,
-//       gravity: ToastGravity.CENTER,
-//       backgroundColor: Colors.green,
-//       textColor: Colors.white,
-//       fontSize: 16.0,
-//     );
-//   }
-
-//   @override
-//   Widget build(BuildContext context) {
-//     return Scaffold(
-//       appBar: AppBar(
-//         title: const Text('Become a Driver'),
-//         centerTitle: true,
-//         backgroundColor: Colors.orange,
-//       ),
-//       body: SingleChildScrollView(
-//         padding: const EdgeInsets.all(16.0),
-//         child: Form(
-//           key: _formKey,
-//           child: Column(
-//             crossAxisAlignment: CrossAxisAlignment.start,
-//             children: [
-//               // First Name
-//               _buildTextField(
-//                 controller: _firstNameController,
-//                 label: 'First Name',
-//                 validator: (value) {
-//                   if (value == null || value.isEmpty) {
-//                     return 'Please enter your first name';
-//                   }
-//                   return null;
-//                 },
-//               ),
-//               const SizedBox(height: 16.0),
-
-//               // Surname
-//               _buildTextField(
-//                 controller: _surnameController,
-//                 label: 'Surname',
-//                 validator: (value) {
-//                   if (value == null || value.isEmpty) {
-//                     return 'Please enter your surname';
-//                   }
-//                   return null;
-//                 },
-//               ),
-//               const SizedBox(height: 16.0),
-
-//               // National ID
-//               _buildTextField(
-//                 controller: _nationalIdController,
-//                 label: 'National ID',
-//                 validator: (value) {
-//                   if (value == null || value.isEmpty) {
-//                     return 'Please enter your National ID';
-//                   }
-//                   return null;
-//                 },
-//               ),
-//               const SizedBox(height: 16.0),
-
-//               // Registration Number
-//               _buildTextField(
-//                 controller: _registrationNumberController,
-//                 label: 'Registration Number',
-//                 validator: (value) {
-//                   if (value == null || value.isEmpty) {
-//                     return 'Please enter the vehicle registration number';
-//                   }
-//                   return null;
-//                 },
-//               ),
-//               const SizedBox(height: 16.0),
-
-//               // Driver License Number
-//               _buildTextField(
-//                 controller: _driverLicenseNumberController,
-//                 label: 'Driver License Number',
-//                 validator: (value) {
-//                   if (value == null || value.isEmpty) {
-//                     return 'Please enter your driver license number';
-//                   }
-//                   return null;
-//                 },
-//               ),
-//               const SizedBox(height: 16.0),
-
-//               // Upload Car Image
-//               Row(
-//                 children: [
-//                   ElevatedButton.icon(
-//                     onPressed: () => _pickImage(ImageSource.camera),
-//                     icon: const Icon(Icons.camera_alt),
-//                     label: const Text('Camera'),
-//                   ),
-//                   const SizedBox(width: 8.0),
-//                   ElevatedButton.icon(
-//                     onPressed: () => _pickImage(ImageSource.gallery),
-//                     icon: const Icon(Icons.photo_library),
-//                     label: const Text('Gallery'),
-//                   ),
-//                 ],
-//               ),
-//               if (_carImage != null)
-//                 Padding(
-//                   padding: const EdgeInsets.symmetric(vertical: 16.0),
-//                   child: Image.file(
-//                     _carImage!,
-//                     width: 200,
-//                     height: 200,
-//                   ),
-//                 ),
-//               const SizedBox(height: 16.0),
-
-//               // Accept Terms and Conditions
-//               Row(
-//                 children: [
-//                   Checkbox(
-//                     value: _termsAccepted,
-//                     onChanged: (value) {
-//                       setState(() {
-//                         _termsAccepted = value!;
-//                       });
-//                     },
-//                   ),
-//                   const Expanded(
-//                     child: Text(
-//                       'I accept the terms and conditions',
-//                       style: TextStyle(fontSize: 14.0),
-//                     ),
-//                   ),
-//                 ],
-//               ),
-//               if (!_termsAccepted)
-//                 const Text(
-//                   'You must accept the terms and conditions',
-//                   style: TextStyle(color: Colors.red, fontSize: 12.0),
-//                 ),
-//               const SizedBox(height: 16.0),
-
-//               // Submit Button
-//               SizedBox(
-//                 width: double.infinity,
-//                 child: ElevatedButton(
-//                   onPressed: () {
-//                     if (_formKey.currentState!.validate() && _termsAccepted) {
-//                       _submitApplication();
-//                     } else if (!_termsAccepted) {
-//                       _showToast('You must accept the terms and conditions');
-//                     }
-//                   },
-//                   style: ElevatedButton.styleFrom(
-//                     backgroundColor: Colors.green,
-//                     padding: const EdgeInsets.symmetric(vertical: 14.0),
-//                     shape: RoundedRectangleBorder(
-//                       borderRadius: BorderRadius.circular(12),
-//                     ),
-//                   ),
-//                   child: const Text(
-//                     'Submit Application',
-//                     style: TextStyle(fontSize: 16.0),
-//                   ),
-//                 ),
-//               ),
-//             ],
-//           ),
-//         ),
-//       ),
-//     );
-//   }
-
-//   // Helper method to build text fields
-//   Widget _buildTextField({
-//     required TextEditingController controller,
-//     required String label,
-//     String? Function(String?)? validator,
-//   }) {
-//     return TextFormField(
-//       controller: controller,
-//       decoration: InputDecoration(
-//         labelText: label,
-//         border: OutlineInputBorder(
-//           borderRadius: BorderRadius.circular(12),
-//         ),
-//         contentPadding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
-//       ),
-//       validator: validator,
-//     );
-//   }
-// }

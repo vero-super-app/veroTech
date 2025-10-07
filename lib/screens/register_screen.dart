@@ -2,8 +2,10 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vero360_app/Pages/MerchantApplicationForm.dart';
+import 'package:vero360_app/Pages/merchantbottomnavbar.dart';
 import 'package:vero360_app/services/auth_service.dart';
 import 'package:vero360_app/toasthelper.dart';
+import 'package:vero360_app/screens/login_screen.dart'; // <- for redirect after submit
 
 class AppColors {
   static const brandOrange = Color(0xFFFF8A00);
@@ -55,7 +57,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
     super.dispose();
   }
 
-  // ---------- VALIDATORS ----------
   String? _validateName(String? v) =>
       (v == null || v.trim().isEmpty) ? 'Name is required' : null;
 
@@ -113,7 +114,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
     );
   }
 
-  // ---------- ACTIONS ----------
   Future<void> _sendCode() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
@@ -150,13 +150,21 @@ class _RegisterScreenState extends State<RegisterScreen> {
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
     if (!_otpSent) {
-      ToastHelper.showCustomToast(context, 'Please request a code first',
-          isSuccess: false, errorMessage: '');
+      ToastHelper.showCustomToast(
+        context,
+        'Please request a code first',
+        isSuccess: false,
+        errorMessage: '',
+      );
       return;
     }
     if (_code.text.trim().isEmpty) {
-      ToastHelper.showCustomToast(context, 'Enter the verification code',
-          isSuccess: false, errorMessage: '');
+      ToastHelper.showCustomToast(
+        context,
+        'Enter the verification code',
+        isSuccess: false,
+        errorMessage: '',
+      );
       return;
     }
 
@@ -164,7 +172,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
     final identifier =
         preferred == 'email' ? _email.text.trim() : _phone.text.trim();
 
-    // Step 1: verify code → get ticket (or 'verified')
     setState(() => _verifying = true);
     String? ticket;
     try {
@@ -178,7 +185,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
     if (ticket == null) return;
 
-    // Step 2: create account with ticket (ticket optional; backend may ignore)
     setState(() => _registering = true);
     try {
       final resp = await AuthService().registerUser(
@@ -193,27 +199,105 @@ class _RegisterScreenState extends State<RegisterScreen> {
         context: context,
       );
 
-      if (resp != null && mounted) {
-        if (_role == UserRole.merchant) {
-          // save token so merchant application calls are authorized
-          final token = resp['access_token']?.toString();
-          if (token != null) {
-            final prefs = await SharedPreferences.getInstance();
-            await prefs.setString('token', token);
-            await prefs.setString('jwt_token', token);
-          }
-          Navigator.of(context).pushReplacement(
-            MaterialPageRoute(
-              builder: (_) => MerchantApplicationForm(),
-            ),
-          );
-        } else {
-          Navigator.of(context).maybePop(); // back to login
-        }
-      }
+      if (!mounted) return;
+      await _handleAuthResponse(resp);
     } finally {
       if (mounted) setState(() => _registering = false);
     }
+  }
+
+  /// Merchant flow:
+  /// - Save token if present.
+  /// - Mark review pending.
+  /// - Go to MerchantApplicationForm (no back).
+  /// - On form finished: logout → back to Login.
+  Future<void> _handleAuthResponse(Map<String, dynamic>? resp) async {
+    if (resp == null || !mounted) return;
+
+    if (_role == UserRole.merchant) {
+      final token = (resp['access_token'] ??
+              resp['token'] ??
+              resp['jwt'] ??
+              resp['jwt_token'])
+          ?.toString();
+
+      final prefs = await SharedPreferences.getInstance();
+
+      if (token != null && token.isNotEmpty) {
+        await prefs.setString('token', token);
+        await prefs.setString('jwt_token', token);
+      } else {
+        _showSnack('Account created. Continue with your merchant application.');
+      }
+
+      // mark that application is now under review (used by login/profile)
+      await prefs.setBool('merchant_review_pending', true);
+
+      _goToMerchantApplication(); // cannot back
+      return;
+    }
+
+    // Non-merchant: back to login (or your customer home)
+    if (Navigator.of(context).canPop()) {
+      Navigator.of(context).maybePop();
+    } else {
+      Navigator.of(context).maybePop();
+    }
+  }
+
+  void _goToMerchantHome() {
+    if (!mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(
+        builder: (_) => MerchantBottomnavbar(
+          email: _email.text.trim(),
+        ),
+      ),
+      (_) => false,
+    );
+  }
+
+  void _goToMerchantApplication() {
+    if (!mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(
+        builder: (_) => WillPopScope(
+          onWillPop: () async => false, // block back
+          child: MerchantApplicationForm(
+            onFinished: () async {
+              // set flags
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.setBool('merchant_application_submitted', true);
+              await prefs.setBool('merchant_review_pending', true);
+
+              // logout & go to login screen
+              await _logoutToLogin();
+            },
+          ),
+        ),
+      ),
+      (_) => false,
+    );
+  }
+
+  Future<void> _logoutToLogin() async {
+    // Clear tokens; keep email so the login field can prefill if desired
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('token');
+    await prefs.remove('jwt_token');
+
+    if (!mounted) return;
+    ToastHelper.showCustomToast(context, 'Application submitted. Please log in later to check status.', isSuccess: true, errorMessage: '');
+
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const LoginScreen()),
+      (_) => false,
+    );
+  }
+
+  void _showSnack(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
   @override
@@ -226,7 +310,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
     return Scaffold(
       body: Stack(
         children: [
-          // background
           Container(
             decoration: const BoxDecoration(
               gradient: LinearGradient(
@@ -249,7 +332,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      // Brand avatar
                       Container(
                         padding: const EdgeInsets.all(3),
                         decoration: BoxDecoration(
@@ -303,7 +385,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       ),
                       const SizedBox(height: 22),
 
-                      // Card
                       Container(
                         decoration: BoxDecoration(
                           color: Colors.white.withOpacity(0.9),
@@ -322,7 +403,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           onChanged: () => setState(() {}),
                           child: Column(
                             children: [
-                              // Account type
                               Align(
                                 alignment: Alignment.centerLeft,
                                 child: Text(
@@ -351,7 +431,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                               ),
                               const SizedBox(height: 16),
 
-                              // Inputs
                               TextFormField(
                                 controller: _name,
                                 textInputAction: TextInputAction.next,
@@ -438,15 +517,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
                               ),
                               const SizedBox(height: 12),
 
-                              // Verify via
                               Align(
                                 alignment: Alignment.centerLeft,
                                 child: Text(
                                   'Verify via',
                                   style: TextStyle(
                                     color: Colors.black.withOpacity(0.7),
-                                    fontWeight: FontWeight.w700,
-                                  ),
+                                    fontWeight: FontWeight.w700),
                                 ),
                               ),
                               const SizedBox(height: 6),
@@ -476,7 +553,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
                               const SizedBox(height: 12),
 
-                              // Send code
                               Row(
                                 children: [
                                   Expanded(
@@ -506,7 +582,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
                               const SizedBox(height: 16),
 
-                              // Verify & Create
                               SizedBox(
                                 width: double.infinity,
                                 height: 50,
@@ -540,7 +615,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       const SizedBox(height: 16),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
-                        crossAxisAlignment: CrossAxisAlignment.baseline,
+                        crossAxisAlignment: CrossAxisAlignment.center,
                         textBaseline: TextBaseline.alphabetic,
                         children: [
                           const Text(

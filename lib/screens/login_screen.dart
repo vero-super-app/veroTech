@@ -1,11 +1,12 @@
+// lib/screens/login_screen.dart
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:vero360_app/Pages/BottomNavbar.dart';
+import 'package:vero360_app/Pages/BottomNavbar.dart';                 // customer home
+import 'package:vero360_app/Pages/MerchantApplicationForm.dart';       // optional KYC reopen
+import 'package:vero360_app/Pages/merchantbottomnavbar.dart';          // merchant dashboard
 import 'package:vero360_app/services/auth_service.dart';
 import 'package:vero360_app/toasthelper.dart';
 import 'package:vero360_app/screens/register_screen.dart';
-
-
 
 class AppColors {
   static const brandOrange = Color(0xFFFF8A00);
@@ -47,32 +48,59 @@ class _LoginScreenState extends State<LoginScreen> {
         context,
       );
 
-      if (result != null && result.containsKey('token')) {
-        final prefs = await SharedPreferences.getInstance();
-
-        // Pick what to show in the bottom bar (email or phone from user)
-        final user = Map<String, dynamic>.from(result['user'] ?? {});
-        final displayId = user['email']?.toString()
-            ?? user['phone']?.toString()
-            ?? _identifier.text.trim();
-
-        await prefs.setString('email', displayId);
-
-        if (!mounted) return;
-
-        // ⬇️ Go to the Bottomnavbar so the homepage shows with tabs
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => Bottomnavbar(email: displayId)),
-          (_) => false,
-        );
-      } else {
+      if (result == null || !result.containsKey('token')) {
         ToastHelper.showCustomToast(
           context,
           'Invalid credentials',
           isSuccess: false,
           errorMessage: '',
         );
+        return;
       }
+
+      final prefs = await SharedPreferences.getInstance();
+
+      // Persist token for subsequent calls
+      final token = result['token']?.toString() ??
+          result['access_token']?.toString() ??
+          result['jwt']?.toString();
+      if (token != null) {
+        await prefs.setString('token', token);
+        await prefs.setString('jwt_token', token);
+      }
+
+      // Pull user info and display identity
+      final user = Map<String, dynamic>.from(result['user'] ?? {});
+      final displayId = user['email']?.toString()
+          ?? user['phone']?.toString()
+          ?? _identifier.text.trim();
+      await prefs.setString('email', displayId);
+
+      final role = (user['role'] ?? user['userRole'] ?? '').toString().toLowerCase();
+      final status = (user['applicationStatus'] ?? '').toString().toLowerCase();
+      final profileComplete = user['profileComplete'] == true;
+      final hasCompleted = user['hasCompletedApplication'] == true;
+      final serverSaysApproved = status == 'approved' || profileComplete || hasCompleted;
+
+      if (role == 'merchant') {
+        // Keep a local flag so the Profile page can show the banner
+        await prefs.setBool('merchant_review_pending', !serverSaysApproved);
+
+        if (!mounted) return;
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => MerchantBottomnavbar(email: displayId)),
+          (_) => false,
+        );
+        return;
+      }
+
+      // Customer → customer home
+      if (!mounted) return;
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => Bottomnavbar(email: displayId)),
+        (_) => false,
+      );
+
     } finally {
       if (mounted) setState(() => _loading = false);
     }
