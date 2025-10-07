@@ -39,26 +39,10 @@ class _MerchantApplicationFormState extends State<MerchantApplicationForm> {
   bool _submitting = false;
   bool _agreed = true;
 
-  // NEW: lock the form if already submitted/pending/approved
-  bool _locked = false;
-
   @override
   void initState() {
     super.initState();
     _prefillBusinessName();
-    _checkLock();
-  }
-
-  Future<void> _checkLock() async {
-    final prefs = await SharedPreferences.getInstance();
-    final reviewPending = prefs.getBool('merchant_review_pending') ?? false;
-    final status = (prefs.getString('applicationStatus') ?? '').toLowerCase();
-    setState(() {
-      _locked = reviewPending ||
-          status == 'pending' ||
-          status == 'under_review' ||
-          status == 'approved';
-    });
   }
 
   Future<void> _prefillBusinessName() async {
@@ -95,7 +79,9 @@ class _MerchantApplicationFormState extends State<MerchantApplicationForm> {
           : (_closesAt ?? const TimeOfDay(hour: 17, minute: 0)),
     );
     if (picked != null && mounted) {
-      setState(() => opening ? _opensAt = picked : _closesAt = picked);
+      setState(() {
+        if (opening) _opensAt = picked; else _closesAt = picked;
+      });
     }
   }
 
@@ -104,10 +90,12 @@ class _MerchantApplicationFormState extends State<MerchantApplicationForm> {
     final picked = await picker.pickImage(
       source: ImageSource.gallery,
       maxWidth: 1200,
-      imageQuality: 75,
+      imageQuality: 75, // keep small to avoid 413
     );
     if (picked == null) return;
-    setState(() => isLogo ? _logoFile = picked : _nidFile = picked);
+    setState(() {
+      if (isLogo) _logoFile = picked; else _nidFile = picked;
+    });
   }
 
   InputDecoration _dec(String label) {
@@ -124,6 +112,7 @@ class _MerchantApplicationFormState extends State<MerchantApplicationForm> {
     );
   }
 
+  /// Always navigate to merchant home from THIS widget’s context.
   Future<void> _goToMerchantHomeAfterSuccess() async {
     if (!mounted) return;
     final prefs = await SharedPreferences.getInstance();
@@ -138,10 +127,6 @@ class _MerchantApplicationFormState extends State<MerchantApplicationForm> {
   }
 
   Future<void> _submit() async {
-    if (_locked) {
-      ToastHelper.showCustomToast(context, 'Your application is already submitted.', isSuccess: false, errorMessage: '');
-      return;
-    }
     if (!_agreed) {
       ToastHelper.showCustomToast(context, 'You must accept the terms', isSuccess: false, errorMessage: '');
       return;
@@ -169,27 +154,24 @@ class _MerchantApplicationFormState extends State<MerchantApplicationForm> {
       final base = await ApiConfig.readBase();
       final ok = await ServiceProviderService(baseUrl: base).submitServiceProviderMultipart(
         fields: fields,
-        nationalIdFile: _nidFile!,   // sent as "nationalIdImage"
-        logoFile: _logoFile,         // optional "logoimage"
+        nationalIdFile: _nidFile!,   // REQUIRED => sent as "nationalIdImage"
+        logoFile: _logoFile,         // optional => sent as "logoimage"
         context: context,
       );
 
       if (!ok) return;
 
-      // Persist statuses so Profile banner knows KYC is complete & review is in progress.
       final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('merchant_application_submitted', true);
       await prefs.setBool('merchant_review_pending', true);
-      await prefs.setString('applicationStatus', 'under_review');
-      await prefs.setString('kycStatus', 'complete');
+      await prefs.setString('applicationStatus', 'pending');
 
       ToastHelper.showCustomToast(context, 'Application submitted ✅', isSuccess: true, errorMessage: '');
 
-      // Optional hook
+      // Call callback for bookkeeping only
       try { await widget.onFinished?.call(); } catch (_) {}
 
-      // Lock immediately to prevent second submit in same session
-      setState(() => _locked = true);
-
+      // Always navigate here
       await _goToMerchantHomeAfterSuccess();
     } finally {
       if (mounted) setState(() => _submitting = false);
@@ -218,143 +200,105 @@ class _MerchantApplicationFormState extends State<MerchantApplicationForm> {
                     const Text('Merchant Application', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
                   ]),
                   const SizedBox(height: 10),
-                  _pill(Icons.verified_user_outlined, _locked
-                      ? 'Your application is in review. We’ll notify you shortly.'
-                      : 'Fill this short form to start selling on Vero.'),
+                  _pill(Icons.verified_user_outlined, 'Fill this short form to start selling on Vero.'),
                   const SizedBox(height: 14),
 
-                  if (_locked)
-                    _lockedCard()
-                  else
-                    Container(
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.95),
-                        borderRadius: BorderRadius.circular(18),
-                        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 24, offset: const Offset(0, 10))],
-                      ),
-                      padding: const EdgeInsets.all(16),
-                      child: Form(
-                        key: _form,
-                        child: Column(children: [
-                          TextFormField(
-                            controller: _businessName,
-                            decoration: _dec('Business name'),
-                            textInputAction: TextInputAction.next,
-                            validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
-                          ),
-                          const SizedBox(height: 12),
-                          TextFormField(
-                            controller: _businessDescription,
-                            decoration: _dec('Business description'),
-                            minLines: 3,
-                            maxLines: 5,
-                            validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
-                          ),
-                          const SizedBox(height: 12),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.95),
+                      borderRadius: BorderRadius.circular(18),
+                      boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 24, offset: const Offset(0, 10))],
+                    ),
+                    padding: const EdgeInsets.all(16),
+                    child: Form(
+                      key: _form,
+                      child: Column(children: [
+                        TextFormField(
+                          controller: _businessName,
+                          decoration: _dec('Business name'),
+                          textInputAction: TextInputAction.next,
+                          validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: _businessDescription,
+                          decoration: _dec('Business description'),
+                          minLines: 3,
+                          maxLines: 5,
+                          validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                        ),
+                        const SizedBox(height: 12),
 
-                          Row(children: [
-                            Expanded(
-                              child: InkWell(
-                                onTap: () => _pickTime(opening: true),
-                                borderRadius: BorderRadius.circular(14),
-                                child: InputDecorator(
-                                  decoration: _dec('Opens at'),
-                                  child: Text(_opensAt == null ? 'Select time' : _fmtTime(_opensAt!),
-                                      style: TextStyle(color: _opensAt == null ? Colors.black45 : Colors.black87)),
-                                ),
+                        Row(children: [
+                          Expanded(
+                            child: InkWell(
+                              onTap: () => _pickTime(opening: true),
+                              borderRadius: BorderRadius.circular(14),
+                              child: InputDecorator(
+                                decoration: _dec('Opens at'),
+                                child: Text(_opensAt == null ? 'Select time' : _fmtTime(_opensAt!),
+                                    style: TextStyle(color: _opensAt == null ? Colors.black45 : Colors.black87)),
                               ),
                             ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: InkWell(
-                                onTap: () => _pickTime(opening: false),
-                                borderRadius: BorderRadius.circular(14),
-                                child: InputDecorator(
-                                  decoration: _dec('Closes at'),
-                                  child: Text(_closesAt == null ? 'Select time' : _fmtTime(_closesAt!),
-                                      style: TextStyle(color: _closesAt == null ? Colors.black45 : Colors.black87)),
-                                ),
-                              ),
-                            ),
-                          ]),
-                          const SizedBox(height: 12),
-
-                          _uploadRow(label: 'Logo image (optional)', file: _logoFile, onPick: () => _pickImage(isLogo: true)),
-                          const SizedBox(height: 12),
-                          _uploadRow(label: 'National ID photo', file: _nidFile, onPick: () => _pickImage(isLogo: false), required: true),
-                          const SizedBox(height: 12),
-
-                          Row(children: [
-                            _chip('Status: pending'),
-                            const SizedBox(width: 8),
-                            _chip('Verified: no'),
-                            const SizedBox(width: 8),
-                            _chip('Rating: 0'),
-                          ]),
-                          const SizedBox(height: 12),
-
-                          Row(children: [
-                            Checkbox(value: _agreed, onChanged: (v) => setState(() => _agreed = v ?? false)),
-                            const Expanded(child: Text('I confirm the information provided is accurate.', style: TextStyle(fontWeight: FontWeight.w600))),
-                          ]),
-                          const SizedBox(height: 6),
-
-                          SizedBox(
-                            width: double.infinity,
-                            height: 50,
-                            child: ElevatedButton.icon(
-                              onPressed: _submitting ? null : _submit,
-                              icon: const Icon(Icons.check_circle_outline),
-                              label: Text(_submitting ? 'Submitting…' : 'Submit application'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: AppColors.brand,
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                                foregroundColor: Colors.white,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: InkWell(
+                              onTap: () => _pickTime(opening: false),
+                              borderRadius: BorderRadius.circular(14),
+                              child: InputDecorator(
+                                decoration: _dec('Closes at'),
+                                child: Text(_closesAt == null ? 'Select time' : _fmtTime(_closesAt!),
+                                    style: TextStyle(color: _closesAt == null ? Colors.black45 : Colors.black87)),
                               ),
                             ),
                           ),
                         ]),
-                      ),
+                        const SizedBox(height: 12),
+
+                        _uploadRow(label: 'Logo image (optional)', file: _logoFile, onPick: () => _pickImage(isLogo: true)),
+                        const SizedBox(height: 12),
+                        _uploadRow(label: 'National ID photo', file: _nidFile, onPick: () => _pickImage(isLogo: false), required: true),
+                        const SizedBox(height: 12),
+
+                        Row(children: [
+                          _chip('Status: pending'),
+                          const SizedBox(width: 8),
+                          _chip('Verified: no'),
+                          const SizedBox(width: 8),
+                          _chip('Rating: 0'),
+                        ]),
+                        const SizedBox(height: 12),
+
+                        Row(children: [
+                          Checkbox(value: _agreed, onChanged: (v) => setState(() => _agreed = v ?? false)),
+                          const Expanded(child: Text('I confirm the information provided is accurate.', style: TextStyle(fontWeight: FontWeight.w600))),
+                        ]),
+                        const SizedBox(height: 6),
+
+                        SizedBox(
+                          width: double.infinity,
+                          height: 50,
+                          child: ElevatedButton.icon(
+                            onPressed: _submitting ? null : _submit,
+                            icon: const Icon(Icons.check_circle_outline),
+                            label: Text(_submitting ? 'Submitting…' : 'Submit application'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.brand,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                              foregroundColor: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ]),
                     ),
+                  ),
                 ]),
               ),
             ),
           ),
         ),
       ]),
-    );
-  }
-
-  Widget _lockedCard() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 24, offset: const Offset(0, 10))],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text('Thanks! Your application is being reviewed.',
-              style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
-          const SizedBox(height: 8),
-          const Text('We’ll email you once it’s approved.'),
-          const SizedBox(height: 14),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: _goToMerchantHomeAfterSuccess,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.brand,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-              child: const Text('Go to merchant home'),
-            ),
-          ),
-        ],
-      ),
     );
   }
 
@@ -389,10 +333,9 @@ class _MerchantApplicationFormState extends State<MerchantApplicationForm> {
   Widget _pill(IconData icon, String text) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: Colors.white, borderRadius: BorderRadius.circular(14),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 12, offset: const Offset(0, 6))],
-      ),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(14), boxShadow: [
+        BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 12, offset: const Offset(0, 6))
+      ]),
       child: Row(children: [
         Icon(icon, color: AppColors.brand),
         const SizedBox(width: 10),
