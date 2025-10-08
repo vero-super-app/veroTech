@@ -1,11 +1,11 @@
 // lib/screens/register_screen.dart
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:vero360_app/Pages/MerchantApplicationForm.dart';
-import 'package:vero360_app/Pages/merchantbottomnavbar.dart';
+// REMOVED: import 'package:vero360_app/Pages/MerchantApplicationForm.dart';
+import 'package:vero360_app/Pages/merchantbottomnavbar.dart'; // still used elsewhere; safe to keep
 import 'package:vero360_app/services/auth_service.dart';
 import 'package:vero360_app/toasthelper.dart';
-import 'package:vero360_app/screens/login_screen.dart'; // <- for redirect after submit
+import 'package:vero360_app/screens/login_screen.dart';
 
 class AppColors {
   static const brandOrange = Color(0xFFFF8A00);
@@ -144,9 +144,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         isSuccess: false,
         errorMessage: '',
       );
-      return;
     }
-
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
     if (!_otpSent) {
@@ -198,7 +196,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
         verificationTicket: ticket,
         context: context,
       );
-
       if (!mounted) return;
       await _handleAuthResponse(resp);
     } finally {
@@ -206,89 +203,49 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
   }
 
-  /// Merchant flow:
-  /// - Save token if present.
-  /// - Mark review pending.
-  /// - Go to MerchantApplicationForm (no back).
-  /// - On form finished: logout → back to Login.
+  /// Merchant flow (UPDATED):
+  /// - Do NOT auto-login or go to merchant home.
+  /// - Save a prefill identifier (so Login can auto-fill).
+  /// - Clear any tokens just in case.
+  /// - Push straight to LoginScreen (no back stack).
   Future<void> _handleAuthResponse(Map<String, dynamic>? resp) async {
     if (resp == null || !mounted) return;
 
     if (_role == UserRole.merchant) {
-      final token = (resp['access_token'] ??
-              resp['token'] ??
-              resp['jwt'] ??
-              resp['jwt_token'])
-          ?.toString();
-
       final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('token');
+      await prefs.remove('jwt_token');
 
-      if (token != null && token.isNotEmpty) {
-        await prefs.setString('token', token);
-        await prefs.setString('jwt_token', token);
-      } else {
-        _showSnack('Account created. Continue with your merchant application.');
-      }
+      // Save something the Login page can read to prefill the identifier
+      final prefill = _email.text.trim().isNotEmpty
+          ? _email.text.trim()
+          : _phone.text.trim();
+      await prefs.setString('prefill_login_identifier', prefill);
+      await prefs.setString('prefill_login_role', 'merchant');
 
-      // mark that application is now under review (used by login/profile)
-      await prefs.setBool('merchant_review_pending', true);
+      ToastHelper.showCustomToast(
+        context,
+        'Account created! Please sign in to continue.',
+        isSuccess: true,
+        errorMessage: '',
+      );
 
-      _goToMerchantApplication(); // cannot back
+      _goToLoginPrefilled();
       return;
     }
 
-    // Non-merchant: back to login (or your customer home)
+    // Non-merchant: back or go to login (your choice). Keeping your original behavior:
     if (Navigator.of(context).canPop()) {
       Navigator.of(context).maybePop();
     } else {
-      Navigator.of(context).maybePop();
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+      );
     }
   }
 
-  void _goToMerchantHome() {
+  Future<void> _goToLoginPrefilled() async {
     if (!mounted) return;
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(
-        builder: (_) => MerchantBottomnavbar(
-          email: _email.text.trim(),
-        ),
-      ),
-      (_) => false,
-    );
-  }
-
-  void _goToMerchantApplication() {
-    if (!mounted) return;
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(
-        builder: (_) => WillPopScope(
-          onWillPop: () async => false, // block back
-          child: MerchantApplicationForm(
-            onFinished: () async {
-              // set flags
-              final prefs = await SharedPreferences.getInstance();
-              await prefs.setBool('merchant_application_submitted', true);
-              await prefs.setBool('merchant_review_pending', true);
-
-              // logout & go to login screen
-              await _logoutToLogin();
-            },
-          ),
-        ),
-      ),
-      (_) => false,
-    );
-  }
-
-  Future<void> _logoutToLogin() async {
-    // Clear tokens; keep email so the login field can prefill if desired
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('token');
-    await prefs.remove('jwt_token');
-
-    if (!mounted) return;
-    ToastHelper.showCustomToast(context, 'Application submitted. Please log in later to check status.', isSuccess: true, errorMessage: '');
-
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(builder: (_) => const LoginScreen()),
       (_) => false,
