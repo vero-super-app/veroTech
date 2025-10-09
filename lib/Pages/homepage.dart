@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:carousel_slider/carousel_slider.dart';
+import 'package:vero360_app/Accomodation.dart';
 
-import 'package:vero360_app/Pages/Accomodation.dart';
+
 import 'package:vero360_app/Pages/Edu.dart';
 import 'package:vero360_app/Pages/ExchangeRate.dart';
 import 'package:vero360_app/Pages/MerchantApplicationForm.dart';
@@ -9,6 +10,7 @@ import 'package:vero360_app/Pages/MobileMoney.dart';
 import 'package:vero360_app/Pages/More.dart';
 import 'package:vero360_app/Pages/Taxi.dart';
 import 'package:vero360_app/Pages/food.dart';
+import 'package:vero360_app/Pages/myaccomodation.dart';
 import 'package:vero360_app/Pages/utility.dart';
 
 /// Brand palette

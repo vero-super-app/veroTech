@@ -496,6 +496,8 @@ class _ProfilePageState extends State<MerchantProfilePage> {
       ),
     );
   }
+   
+  
 
   // --- Header card: safe layout (no negative heights, no short Stack) ---
   Widget _topProfileCard() {

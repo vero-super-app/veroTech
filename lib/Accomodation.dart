@@ -1,3 +1,5 @@
+// lib/Pages/AccomodationPage.dart
+import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:vero360_app/models/hostel_model.dart';
@@ -14,20 +16,58 @@ class _AccomodationPageState extends State<AccomodationPage> {
   final _service = AccommodationService();
   late Future<List<Accommodation>> _future;
 
-  final _filters = const ['All', 'Apartments', 'Houses'];
+  // Filters & search
+  final _filters = const ['All', 'Hotel', 'Hostel', 'BnB', 'Lodge', 'Apartment', 'House'];
   String _active = 'All';
+
+  final TextEditingController _searchCtrl = TextEditingController();
+  Timer? _debounce;
+  String _query = '';
+
   bool _animateIn = false;
 
   @override
   void initState() {
     super.initState();
     _future = _service.fetchAll();
+    _searchCtrl.addListener(_onSearchChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) setState(() => _animateIn = true);
     });
   }
 
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  void _onSearchChanged() {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 250), () {
+      if (!mounted) return;
+      setState(() => _query = _searchCtrl.text.trim().toLowerCase());
+    });
+  }
+
   Future<void> _reload() async => setState(() => _future = _service.fetchAll());
+
+  List<Accommodation> _applyFilters(List<Accommodation> data) {
+    final q = _query;
+    final active = _active.toLowerCase();
+
+    return data.where((a) {
+      final type = (a.accommodationType ?? '').toLowerCase();
+      final name = (a.name ?? '').toLowerCase();
+      final location = (a.location ?? '').toLowerCase();
+
+      final chipOk = active == 'all' || type.contains(active);
+      final textOk = q.isEmpty || type.contains(q) || name.contains(q) || location.contains(q);
+
+      return chipOk && textOk;
+    }).toList();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -47,47 +87,74 @@ class _AccomodationPageState extends State<AccomodationPage> {
             }
 
             final data = (snap.data ?? <Accommodation>[]);
-            final filtered = data.where((a) {
-              final type = (a.accommodationType ?? '').toLowerCase();
-              if (_active == 'All') return true;
-              if (_active == 'Apartments') return type.contains('apartment');
-              if (_active == 'Houses') return type.contains('house');
-              return true;
-            }).toList();
-
-            final topDeals = filtered.isNotEmpty ? filtered : _placeholders(tag: 'Deal');
-            final recommended = filtered.isNotEmpty ? filtered.reversed.toList() : _placeholders(tag: 'Reco');
-            final newOffers = filtered.length >= 4 ? filtered.sublist(0, 4) : _placeholders(tag: 'New');
+            final filtered = _applyFilters(data);
+            final count = filtered.length;
 
             return CustomScrollView(
               physics: const BouncingScrollPhysics(),
               slivers: [
-                _DiscoverAppBar(animateIn: _animateIn),
+                _DiscoverAppBar(animateIn: _animateIn, searchCtrl: _searchCtrl),
                 SliverToBoxAdapter(
                   child: AnimatedOpacity(
                     opacity: _animateIn ? 1 : 0,
-                    duration: const Duration(milliseconds: 500),
+                    duration: const Duration(milliseconds: 300),
                     curve: Curves.easeOut,
-                    child: _FilterRow(
-                      filters: _filters,
-                      active: _active,
-                      onPick: (v) => setState(() => _active = v),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const SizedBox(height: 8),
+                        _FilterRow(
+                          filters: _filters,
+                          active: _active,
+                          onPick: (v) => setState(() => _active = v),
+                        ),
+                        const SizedBox(height: 8),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: Row(
+                            children: [
+                              Text(
+                                '$count result${count == 1 ? '' : 's'}',
+                                style: const TextStyle(color: _Brand.body, fontWeight: FontWeight.w700),
+                              ),
+                              const Spacer(),
+                              if (_active != 'All' || _query.isNotEmpty)
+                                TextButton.icon(
+                                  onPressed: () {
+                                    setState(() {
+                                      _active = 'All';
+                                      _searchCtrl.clear();
+                                      _query = '';
+                                    });
+                                  },
+                                  icon: const Icon(Icons.filter_alt_off, size: 18, color: _Brand.orange),
+                                  label: const Text('Clear', style: TextStyle(color: _Brand.orange, fontWeight: FontWeight.w800)),
+                                  style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 8)),
+                                ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                      ],
                     ),
                   ),
                 ),
-                const SliverToBoxAdapter(child: SizedBox(height: 8)),
 
-                // Top deals
-                SliverToBoxAdapter(child: _SectionHeader(title: 'Top deals', emoji: '🔥', onSeeAll: () {})),
-                _GridTwo(items: topDeals),
-
-                // Recommended
-                SliverToBoxAdapter(child: _SectionHeader(title: 'Recommended for you', emoji: '✨', onSeeAll: () {})),
-                _GridTwo(items: recommended),
-
-                // New offers
-                SliverToBoxAdapter(child: _SectionHeader(title: 'New offers', emoji: '🆕', onSeeAll: () {})),
-                _GridTwo(items: newOffers),
+                if (filtered.isEmpty)
+                  const SliverToBoxAdapter(
+                    child: Padding(
+                      padding: EdgeInsets.only(top: 80),
+                      child: Center(
+                        child: Text(
+                          'No results. Try another type (hotel, hostel, bnb, lodge) or clear the search.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: _Brand.body, fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                    ),
+                  )
+                else
+                  _GridTwo(items: filtered),
 
                 const SliverToBoxAdapter(child: SizedBox(height: 24)),
               ],
@@ -95,31 +162,16 @@ class _AccomodationPageState extends State<AccomodationPage> {
           },
         ),
       ),
-      bottomNavigationBar: const _BottomBar(),
-    );
-  }
-
-  List<Accommodation> _placeholders({required String tag}) {
-    return List.generate(
-      6,
-      (i) => Accommodation(
-        id: -1000 - i,
-        name: '${tag == "Deal" ? "Indigo" : tag == "Reco" ? "Emerald" : "Sapphire"} House',
-        location: 'Abuja, Nigeria',
-        price: 38000,
-        description: 'This place is located in the middle of Abuja. There is nightlife and a poolside.',
-        accommodationType: 'Apartment',
-        owner: null,
-      ),
     );
   }
 }
 
-/*────────────────────────  APP BAR  ────────────────────────*/
+/*────────────────────────  APP BAR + SEARCH  ────────────────────────*/
 
 class _DiscoverAppBar extends StatelessWidget {
   final bool animateIn;
-  const _DiscoverAppBar({required this.animateIn});
+  final TextEditingController searchCtrl;
+  const _DiscoverAppBar({required this.animateIn, required this.searchCtrl});
 
   @override
   Widget build(BuildContext context) {
@@ -139,7 +191,7 @@ class _DiscoverAppBar extends StatelessWidget {
       flexibleSpace: FlexibleSpaceBar(
         background: AnimatedOpacity(
           opacity: animateIn ? 1 : 0,
-          duration: const Duration(milliseconds: 500),
+          duration: const Duration(milliseconds: 300),
           child: Container(
             padding: const EdgeInsets.fromLTRB(16, 72, 16, 12),
             decoration: const BoxDecoration(
@@ -149,7 +201,7 @@ class _DiscoverAppBar extends StatelessWidget {
                 colors: [Color(0xFFFFF3E3), Colors.white],
               ),
             ),
-            child: _HeroCard(),
+            child: _SearchBar(ctrl: searchCtrl),
           ),
         ),
       ),
@@ -157,7 +209,10 @@ class _DiscoverAppBar extends StatelessWidget {
   }
 }
 
-class _HeroCard extends StatelessWidget {
+class _SearchBar extends StatelessWidget {
+  final TextEditingController ctrl;
+  const _SearchBar({required this.ctrl});
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -166,30 +221,38 @@ class _HeroCard extends StatelessWidget {
         color: Colors.white,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: const Color(0x22FF8A00)),
-        boxShadow: [
-          BoxShadow(color: _Brand.orange.withOpacity(0.12), blurRadius: 14, offset: const Offset(0, 8)),
-        ],
+        boxShadow: [BoxShadow(color: _Brand.orange.withOpacity(0.10), blurRadius: 12, offset: const Offset(0, 6))],
       ),
       padding: const EdgeInsets.symmetric(horizontal: 12),
       child: Row(
-        children: const [
-          Text('🏠', style: TextStyle(fontSize: 18)),
-          SizedBox(width: 8),
+        children: [
+          const Icon(Icons.search_rounded, color: _Brand.body),
+          const SizedBox(width: 8),
           Expanded(
-            child: Text(
-              'Find your next stay — curated deals near you',
-              maxLines: 1, overflow: TextOverflow.ellipsis,
-              style: TextStyle(color: _Brand.title, fontWeight: FontWeight.w800),
+            child: TextField(
+              controller: ctrl,
+              textInputAction: TextInputAction.search,
+              decoration: const InputDecoration(
+                hintText: 'Search by type (hotel, hostel, bnb, lodge) or name/location',
+                border: InputBorder.none,
+              ),
             ),
           ),
-          Icon(Icons.tune_rounded, color: _Brand.orange),
+          if (ctrl.text.isNotEmpty)
+            InkWell(
+              onTap: () {
+                ctrl.clear();
+                FocusScope.of(context).unfocus();
+              },
+              child: const Icon(Icons.close_rounded, color: _Brand.body),
+            ),
         ],
       ),
     );
   }
 }
 
-/*────────────────────────  SECTIONS  ────────────────────────*/
+/*────────────────────────  FILTER CHIPS  ────────────────────────*/
 
 class _FilterRow extends StatelessWidget {
   final List<String> filters;
@@ -233,41 +296,15 @@ class _FilterRow extends StatelessWidget {
   }
 }
 
-class _SectionHeader extends StatelessWidget {
-  final String title;
-  final String emoji;
-  final VoidCallback onSeeAll;
-  const _SectionHeader({required this.title, required this.onSeeAll, this.emoji = ''});
+/*────────────────────────  GRID  ────────────────────────*/
 
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
-      child: Row(
-        children: [
-          Text(
-            '${emoji.isNotEmpty ? '$emoji  ' : ''}$title',
-            style: const TextStyle(color: _Brand.title, fontWeight: FontWeight.w900, fontSize: 16),
-          ),
-          const Spacer(),
-          TextButton(
-            onPressed: onSeeAll,
-            child: const Text('See all', style: TextStyle(color: _Brand.orange, fontWeight: FontWeight.w800)),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Two-column grid (taller tiles to avoid overflow)
 class _GridTwo extends StatelessWidget {
   final List<Accommodation> items;
   const _GridTwo({required this.items});
 
   @override
   Widget build(BuildContext context) {
-    final count = math.min(items.length, 8);
+    final count = math.min(items.length, 100);
     return SliverPadding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       sliver: SliverGrid(
@@ -279,15 +316,15 @@ class _GridTwo extends StatelessWidget {
           crossAxisCount: 2,
           crossAxisSpacing: 12,
           mainAxisSpacing: 12,
-          // ↓ more height per tile fixes RenderFlex overflow on small screens
-          childAspectRatio: 0.72,
+          // tighter & taller to match reference
+          childAspectRatio: 0.66,
         ),
       ),
     );
   }
 }
 
-/*────────────────────────  CARD  ────────────────────────*/
+/*────────────────────────  CARD (reference-style)  ────────────────────────*/
 
 class _StayCard extends StatefulWidget {
   final Accommodation a;
@@ -319,9 +356,9 @@ class _StayCardState extends State<_StayCard> {
   @override
   Widget build(BuildContext context) {
     final a = widget.a;
-    final desc = (a.description ?? '').isEmpty
-        ? 'Cozy stay close to attractions and nightlife.'
-        : a.description!;
+    final desc = a.description ?? '';
+    final type = a.accommodationType ?? '';
+
     return Semantics(
       label: '${a.name}. ${a.location}. ${a.accommodationType}. ${_price(a.price)}.',
       button: true,
@@ -329,7 +366,7 @@ class _StayCardState extends State<_StayCard> {
         scale: _pressed ? 0.98 : 1.0,
         duration: const Duration(milliseconds: 140),
         child: InkWell(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(18),
           onHighlightChanged: (v) => setState(() => _pressed = v),
           onTap: () {
             showModalBottomSheet(
@@ -344,89 +381,129 @@ class _StayCardState extends State<_StayCard> {
           child: Ink(
             decoration: BoxDecoration(
               color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: const [BoxShadow(color: Color(0x14000000), blurRadius: 16, offset: Offset(0, 8))],
+              borderRadius: BorderRadius.circular(18),
+              boxShadow: const [BoxShadow(color: Color(0x12000000), blurRadius: 16, offset: Offset(0, 8))],
+              border: Border.all(color: const Color(0x0D101010)),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Image area (fixed)
+                // IMAGE (big, rounded, overlay chips/icons)
                 ClipRRect(
-                  borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-                  child: Container(
-                    height: 120,
-                    width: double.infinity,
-                    decoration: const BoxDecoration(
-                      gradient: LinearGradient(colors: [Color(0xFFEFEFF3), Color(0xFFF9F9FB)]),
-                    ),
-                    child: const Center(
-                      child: Icon(Icons.photo_size_select_actual_outlined, color: Color(0xFFB8BBC7), size: 36),
-                    ),
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
+                  child: Stack(
+                    children: [
+                      // If your API has an image URL later, replace with Image.network(...)
+                      Container(
+                        height: 160,
+                        width: double.infinity,
+                        decoration: const BoxDecoration(
+                          gradient: LinearGradient(colors: [Color(0xFFEFEFF3), Color(0xFFF9F9FB)]),
+                        ),
+                        child: const Center(
+                          child: Icon(Icons.photo_size_select_actual_outlined, color: Color(0xFFB8BBC7), size: 36),
+                        ),
+                      ),
+                      // subtle bottom gradient for readability
+                      Positioned.fill(
+                        child: IgnorePointer(
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: [Colors.transparent, Colors.black.withOpacity(0.25)],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      // type chip (top-left)
+                      if (type.isNotEmpty)
+                        Positioned(
+                          top: 10,
+                          left: 10,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.92),
+                              borderRadius: BorderRadius.circular(22),
+                              boxShadow: const [BoxShadow(color: Color(0x14000000), blurRadius: 8)],
+                            ),
+                            child: Text(type, style: const TextStyle(fontWeight: FontWeight.w800)),
+                          ),
+                        ),
+                      // favorite (top-right)
+                      Positioned(
+                        top: 6,
+                        right: 6,
+                        child: IconButton(
+                          onPressed: () {},
+                          icon: const Icon(Icons.favorite_border_rounded, color: Colors.white),
+                          splashRadius: 20,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
 
-                // Texts area (flexible to avoid overflow)
+                // DETAILS
                 Expanded(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(a.name ?? 'Untitled',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(color: _Brand.title, fontWeight: FontWeight.w900)),
-                        const SizedBox(height: 2),
-                        // rating row (tight)
-                        const Row(
+                        // title + price
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Icon(Icons.star, color: Color(0xFFFFC107), size: 14),
-                            Icon(Icons.star, color: Color(0xFFFFC107), size: 14),
-                            Icon(Icons.star, color: Color(0xFFFFC107), size: 14),
-                            Icon(Icons.star, color: Color(0xFFFFC107), size: 14),
-                            Icon(Icons.star_half, color: Color(0xFFFFC107), size: 14),
+                            Expanded(
+                              child: Text(
+                                a.name ?? '—',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(color: _Brand.title, fontWeight: FontWeight.w900),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: const Color(0x14FF8A00),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: const Color(0x22FF8A00)),
+                              ),
+                              child: Text(_price(a.price),
+                                  style: const TextStyle(color: _Brand.orange, fontWeight: FontWeight.w900)),
+                            ),
                           ],
                         ),
-                        const SizedBox(height: 4),
-                        // description uses Flexible to compress first
+                        const SizedBox(height: 6),
+                        // location row
+                        Row(
+                          children: [
+                            const Icon(Icons.place_rounded, size: 16, color: _Brand.body),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: Text(
+                                a.location ?? '—',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(color: _Brand.body, fontWeight: FontWeight.w700),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        // brief description
                         Flexible(
                           child: Text(
-                            desc,
-                            maxLines: 2,
+                            (desc.isEmpty ? ' ' : desc),
+                            maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(color: _Brand.body, height: 1.3, fontWeight: FontWeight.w600),
                           ),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(_price(a.price),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(color: _Brand.title, fontWeight: FontWeight.w900)),
-                        const SizedBox(height: 2),
-                        // location badge (tiny)
-                        Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFF7F7F9),
-                                borderRadius: BorderRadius.circular(10),
-                                border: Border.all(color: const Color(0xFFEDEDF2)),
-                              ),
-                              child: Text(
-                                (a.location ?? 'Nearby'),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: _Brand.title,
-                                  fontWeight: FontWeight.w800,
-                                  fontSize: 11.5,
-                                ),
-                              ),
-                            ),
-                            const Spacer(),
-                            const Icon(Icons.favorite_border_rounded, color: _Brand.title, size: 18),
-                          ],
                         ),
                       ],
                     ),
@@ -467,18 +544,12 @@ class _DetailSheet extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(16, 10, 16, 24),
               children: [
                 Center(
-                  child: Container(
-                    height: 4, width: 48,
-                    decoration: BoxDecoration(color: Colors.black26, borderRadius: BorderRadius.circular(2)),
-                  ),
+                  child: Container(height: 4, width: 48, decoration: BoxDecoration(color: Colors.black26, borderRadius: BorderRadius.circular(2))),
                 ),
                 const SizedBox(height: 12),
                 Row(children: [
                   Expanded(
-                    child: Text(
-                      a.name ?? 'Untitled stay',
-                      style: const TextStyle(color: _Brand.title, fontWeight: FontWeight.w900, fontSize: 18),
-                    ),
+                    child: Text(a.name ?? 'Untitled stay', style: const TextStyle(color: _Brand.title, fontWeight: FontWeight.w900, fontSize: 18)),
                   ),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -487,16 +558,14 @@ class _DetailSheet extends StatelessWidget {
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(color: const Color(0x22FF8A00)),
                     ),
-                    child: Text(priceText,
-                        style: const TextStyle(color: _Brand.orange, fontWeight: FontWeight.w900)),
+                    child: Text(priceText, style: const TextStyle(color: _Brand.orange, fontWeight: FontWeight.w900)),
                   ),
                 ]),
                 const SizedBox(height: 6),
                 Text('${a.location ?? '—'} • ${a.accommodationType ?? '—'}',
                     style: const TextStyle(color: _Brand.body, fontWeight: FontWeight.w600)),
                 const SizedBox(height: 12),
-                Text(desc,
-                    style: const TextStyle(color: _Brand.body, fontWeight: FontWeight.w600, height: 1.35)),
+                Text(desc, style: const TextStyle(color: _Brand.body, fontWeight: FontWeight.w600, height: 1.35)),
                 const SizedBox(height: 16),
                 if (a.owner != null) ...[
                   const Text('Owner', style: TextStyle(color: _Brand.title, fontWeight: FontWeight.w900)),
@@ -513,8 +582,10 @@ class _DetailSheet extends StatelessWidget {
                     child: ElevatedButton.icon(
                       onPressed: () {},
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: _Brand.orange, foregroundColor: Colors.white,
-                        elevation: 0, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        backgroundColor: _Brand.orange,
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                         padding: const EdgeInsets.symmetric(vertical: 14),
                       ),
                       icon: const Icon(Icons.calendar_today_rounded),
@@ -526,7 +597,8 @@ class _DetailSheet extends StatelessWidget {
                     child: OutlinedButton.icon(
                       onPressed: () {},
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: _Brand.orange, side: const BorderSide(color: _Brand.orange),
+                        foregroundColor: _Brand.orange,
+                        side: const BorderSide(color: _Brand.orange),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                         padding: const EdgeInsets.symmetric(vertical: 14),
                       ),
@@ -552,23 +624,20 @@ class _OwnerLine extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(children: [
       Container(
-        height: 28, width: 28,
+        height: 28,
+        width: 28,
         decoration: BoxDecoration(color: const Color(0x14FF8A00), borderRadius: BorderRadius.circular(8)),
         child: Icon(icon, color: _Brand.orange, size: 16),
       ),
       const SizedBox(width: 8),
       Expanded(
-        child: Text(
-          text,
-          maxLines: 2, overflow: TextOverflow.ellipsis,
-          style: const TextStyle(color: _Brand.body, fontWeight: FontWeight.w700),
-        ),
+        child: Text(text, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: _Brand.body, fontWeight: FontWeight.w700)),
       ),
     ]);
   }
 }
 
-/*──────────────  STATES & BOTTOM BAR  ──────────────*/
+/*──────────────  STATES  ──────────────*/
 
 class _Loading extends StatelessWidget {
   const _Loading();
@@ -609,48 +678,9 @@ class _Error extends StatelessWidget {
   }
 }
 
-class _BottomBar extends StatelessWidget {
-  const _BottomBar();
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 64,
-      decoration: const BoxDecoration(color: Colors.white, boxShadow: [
-        BoxShadow(color: Color(0x14000000), blurRadius: 18, offset: Offset(0, -6))
-      ]),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        children: const [
-          _NavIcon(icon: Icons.home_rounded, active: false),
-          _NavIcon(icon: Icons.explore_rounded, active: true),
-          _NavIcon(icon: Icons.favorite_outline_rounded, active: false),
-          _NavIcon(icon: Icons.person_outline_rounded, active: false),
-        ],
-      ),
-    );
-  }
-}
-
-class _NavIcon extends StatelessWidget {
-  final IconData icon;
-  final bool active;
-  const _NavIcon({required this.icon, required this.active});
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 44, width: 44,
-      decoration: BoxDecoration(
-        color: active ? const Color(0x14FF8A00) : Colors.transparent,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Icon(icon, color: active ? _Brand.orange : _Brand.title),
-    );
-  }
-}
-
 /*────────────────────────  BRAND  ────────────────────────*/
 class _Brand {
-  static const orange = Color(0xFFFF8A00); // brand accent
+  static const orange = Color(0xFFFF8A00);
   static const title = Color(0xFF101010);
   static const body = Color(0xFF6B6B6B);
   static const bg = Color(0xFFF7F8FA);

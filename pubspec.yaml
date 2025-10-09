@@ -22,7 +22,8 @@ dependencies:
   saver_gallery: ^4.0.1
   app_links: ^6.0.0
   permission_handler: ^11.3.1
-  mime: ^1.0.5
+
+  mime: ^2.0.0
   http_parser: ^4.0.2
 
   # Location

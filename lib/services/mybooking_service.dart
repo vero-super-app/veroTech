@@ -15,23 +15,61 @@ class AuthRequiredException implements Exception {
 }
 
 class MyBookingService {
+  /* --------------------- infra helpers --------------------- */
+
   Future<String> _base() async {
     final b = await ApiConfig.readBase();
-    return b.isEmpty ? ApiConfig.prod : b;
+    return b.isNotEmpty ? b : (ApiConfig.prodBase);
   }
 
   Future<String> _token() async {
     final prefs = await SharedPreferences.getInstance();
-    final t = prefs.getString('jwt_token') ?? prefs.getString('token');
-    if (t == null || t.isEmpty) throw AuthRequiredException('No auth token found');
-    return t;
+    const keys = ['jwt_token', 'token', 'authToken', 'merchant_token', 'merchantToken'];
+    for (final k in keys) {
+      final t = prefs.getString(k);
+      if (t != null && t.isNotEmpty) return t;
+    }
+    throw AuthRequiredException('No auth token found');
+  }
+
+  Map<String, dynamic>? _decodeJwtPayload(String token) {
+    try {
+      final parts = token.split('.');
+      if (parts.length != 3) return null;
+      final payload = utf8.decode(base64Url.decode(base64Url.normalize(parts[1])));
+      return jsonDecode(payload) as Map<String, dynamic>;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<bool> _isMerchant() async {
+    final prefs = await SharedPreferences.getInstance();
+    if ((prefs.getBool('is_merchant') ?? prefs.getBool('merchant')) == true) return true;
+    final roleStr = (prefs.getString('role') ?? prefs.getString('userRole') ?? '').toLowerCase();
+    if (roleStr.contains('merchant')) return true;
+
+    try {
+      final t = await _token();
+      final p = _decodeJwtPayload(t);
+      if (p != null) {
+        if (p['isMerchant'] == true) return true;
+        final role = (p['role'] ?? '').toString().toLowerCase();
+        if (role.contains('merchant')) return true;
+        final roles = p['roles'];
+        if (roles is List && roles.map((e) => '$e'.toLowerCase()).contains('merchant')) return true;
+        final scope = (p['scope'] ?? '').toString().toLowerCase();
+        if (scope.contains('merchant')) return true;
+      }
+    } catch (_) {}
+    return false;
   }
 
   Future<Map<String, String>> _headers() async => {
-    'Accept'       : 'application/json',
-    'Content-Type' : 'application/json',
-    'Authorization': 'Bearer ${await _token()}',
-  };
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ${await _token()}',
+      };
 
   Never _bad(http.Response r) {
     if (r.statusCode == 401 || r.statusCode == 403) {
@@ -69,12 +107,19 @@ class MyBookingService {
     }
   }
 
-  /// GET /bookings/me  (?status=pending|confirmed|cancelled|completed)
+  /* --------------------- public API --------------------- */
+
+  // Chooses the right “me” endpoint by role.
+  // Customer:  GET /bookings/me
+  // Merchant:  GET /bookings/merchant/me   (mirror of your orders pattern)
   Future<List<BookingItem>> getMyBookings({BookingStatus? status}) async {
     final base = await _base();
-    final qp   = status != null ? {'status': bookingStatusToApi(status)} : null;
-    final u    = Uri.parse('$base/bookings/me').replace(queryParameters: qp);
-    final h    = await _headers();
+    final isMerchant = await _isMerchant();
+    final path = isMerchant ? '/bookings/merchant/me' : '/bookings/me';
+
+    final qp = status != null ? {'status': bookingStatusToApi(status)} : null;
+    final u = Uri.parse('$base$path').replace(queryParameters: qp);
+    final h = await _headers();
 
     final r = await _retry(() => http.get(u, headers: h));
     if (r.statusCode != 200) _bad(r);
@@ -86,20 +131,18 @@ class MyBookingService {
             ? decoded['data'] as List
             : (decoded is Map ? [decoded] : <dynamic>[]);
 
-    return list.whereType<Map<String, dynamic>>().map(BookingItem.fromJson).toList();
+    final all = list.whereType<Map<String, dynamic>>().map(BookingItem.fromJson).toList();
+
+    if (status != null) {
+      return all.where((b) => b.status == status).toList();
+    }
+    return all;
   }
 
-  /// POST /bookings (returns BookingItem).
-  /// If you need a different endpoint for another flow, pass [overridePath].
-  Future<BookingItem> createBooking(
-    BookingCreatePayload payload, {
-    String? overridePath,
-  }) async {
-    final base = await _base();
-    final path = overridePath ?? '/bookings';
-    final u    = Uri.parse('$base$path');
-    final h    = await _headers();
-
+  // Create, update, delete remain the same — role is typically enforced by the server.
+  Future<BookingItem> createBooking(BookingCreatePayload payload, {String? overridePath}) async {
+    final u = Uri.parse('${await _base()}${overridePath ?? '/bookings'}');
+    final h = await _headers();
     final r = await _retry(() => http.post(u, headers: h, body: jsonEncode(payload.toJson())));
     if (r.statusCode < 200 || r.statusCode >= 300) _bad(r);
 
@@ -112,16 +155,14 @@ class MyBookingService {
     return BookingItem.fromJson(map);
   }
 
-  /// PATCH /bookings/{id}/status
   Future<void> updateStatus(String id, BookingStatus next) async {
     final u = Uri.parse('${await _base()}/bookings/$id/status');
     final h = await _headers();
-    final body = jsonEncode({'status': bookingStatusToApi(next)}); // change to "Status" if your API requires
+    final body = jsonEncode({'status': bookingStatusToApi(next)});
     final r = await _retry(() => http.patch(u, headers: h, body: body));
     if (r.statusCode < 200 || r.statusCode >= 300) _bad(r);
   }
 
-  /// DELETE /bookings/{id}
   Future<void> deleteBooking(String id) async {
     final u = Uri.parse('${await _base()}/bookings/$id');
     final h = await _headers();
@@ -129,7 +170,6 @@ class MyBookingService {
     if (r.statusCode < 200 || r.statusCode >= 300) _bad(r);
   }
 
-  /// Try to cancel via status; if not supported, delete.
   Future<bool> cancelOrDelete(String id) async {
     try {
       await updateStatus(id, BookingStatus.cancelled);
