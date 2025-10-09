@@ -2,11 +2,18 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
+
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
+
+// ✅ needed to set correct MIME on uploads
+import 'package:mime/mime.dart';
+import 'package:http_parser/http_parser.dart';
+
+import 'package:vero360_app/services/api_config.dart';
 
 import 'package:vero360_app/Pages/Home/myorders.dart';
 import 'package:vero360_app/Pages/QRcode.dart';
@@ -109,7 +116,6 @@ class _ProfilePageState extends State<MerchantProfilePage> {
       addr = user['address'].toString();
     }
 
-    // Normalize statuses
     final serverAppStatus = (user['applicationStatus'] ?? user['merchantApplicationStatus'] ?? '').toString().toLowerCase();
     final serverKycStatus = (user['kycStatus'] ?? '').toString().toLowerCase();
     final serverIsVerified = (user['isVerified'] == true) || (user['merchantVerified'] == true) || (user['verified'] == true);
@@ -146,8 +152,9 @@ class _ProfilePageState extends State<MerchantProfilePage> {
       final token = await _getAuthToken();
       if (token.isEmpty) { setState(() => _loading = false); return; }
 
+      final base = await ApiConfig.readBase();
       final response = await http.get(
-        Uri.parse('https://vero-backend.onrender.com/users/me'),
+        Uri.parse('$base/users/me'),
         headers: {'Authorization': 'Bearer $token','Accept': 'application/json'},
       );
       if (!mounted) return;
@@ -165,7 +172,6 @@ class _ProfilePageState extends State<MerchantProfilePage> {
         );
       }
     } catch (e) {
-      // Offline/DNS failure should not break layout
       setState(() => _offline = true);
       debugPrint('Error fetching user: $e');
     } finally {
@@ -217,6 +223,36 @@ class _ProfilePageState extends State<MerchantProfilePage> {
     }
   }
 
+  // ===== Helpers for upload =====
+  String _safeFileName(XFile picked) {
+    try {
+      // image_picker exposes .name on most platforms
+      // ignore: invalid_use_of_visible_for_testing_member
+      final n = picked.name;
+      if (n.trim().isNotEmpty) return n;
+    } catch (_) {}
+    final fromPath = picked.path.split('/').last;
+    if (fromPath.trim().isNotEmpty) return fromPath;
+    return 'profile.jpg';
+  }
+
+  Future<http.MultipartFile> _buildMultipartImage(String field, XFile picked) async {
+    String filename = _safeFileName(picked);
+    if (!filename.contains('.')) filename = '$filename.jpg';
+
+    if (kIsWeb) {
+      final bytes = await picked.readAsBytes();
+      // detect mime from header bytes + filename fallback
+      final mimeStr = lookupMimeType(filename, headerBytes: bytes.take(12).toList()) ?? 'image/jpeg';
+      final mediaType = MediaType.parse(mimeStr);
+      return http.MultipartFile.fromBytes(field, bytes, filename: filename, contentType: mediaType);
+    } else {
+      final mimeStr = lookupMimeType(picked.path) ?? 'image/jpeg';
+      final mediaType = MediaType.parse(mimeStr);
+      return await http.MultipartFile.fromPath(field, picked.path, filename: filename, contentType: mediaType);
+    }
+  }
+
   Future<void> _uploadProfilePicture(XFile picked) async {
     final token = await _getAuthToken();
     if (token.isEmpty) {
@@ -226,40 +262,74 @@ class _ProfilePageState extends State<MerchantProfilePage> {
     }
 
     setState(() => _loading = true);
-    try {
-      final uri = Uri.parse('https://vero-backend.onrender.com/users/me/profile-picture');
+    final base = await ApiConfig.readBase();
+
+    Future<String?> _tryDirectUserUpload() async {
+      final uri = Uri.parse('$base/users/me/profile-picture');
       final req = http.MultipartRequest('POST', uri)
         ..headers['Authorization'] = 'Bearer $token';
 
-      if (kIsWeb) {
-        final bytes = await picked.readAsBytes();
-        req.files.add(http.MultipartFile.fromBytes('file', bytes, filename: 'profile.png'));
-      } else {
-        req.files.add(await http.MultipartFile.fromPath('file', picked.path));
-      }
+      // ✅ ensure proper contentType
+      req.files.add(await _buildMultipartImage('file', picked));
 
       final sent = await req.send();
       final resp = await http.Response.fromStream(sent);
 
       if (resp.statusCode >= 200 && resp.statusCode < 300) {
-        final jsonMap = jsonDecode(resp.body);
-        final payload = (jsonMap is Map && jsonMap['data'] is Map)
-            ? Map<String, dynamic>.from(jsonMap['data'])
-            : (jsonMap is Map ? Map<String, dynamic>.from(jsonMap) : {});
-        final newUrl = (payload['profilepicture'] ?? payload['profilePicture'] ?? payload['url'] ?? '').toString();
-
-        setState(() => profileUrl = newUrl);
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('profilepicture', newUrl);
-
-        if (!mounted) return;
-        ToastHelper.showCustomToast(context, 'Profile picture updated', isSuccess: true, errorMessage: '');
-      } else {
-        if (!mounted) return;
-        ToastHelper.showCustomToast(context, 'Failed to upload', isSuccess: false, errorMessage: '');
+        final body = jsonDecode(resp.body);
+        final data = (body is Map && body['data'] is Map) ? body['data'] as Map : (body as Map? ?? {});
+        return (data['profilepicture'] ?? data['profilePicture'] ?? data['url'])?.toString();
       }
+      if (resp.statusCode == 404) return null; // endpoint not available → fallback
+      throw Exception('Upload failed (${resp.statusCode}) ${resp.body}');
+    }
+
+    Future<String> _uploadGetUrlThenPutUser() async {
+      // 1) upload to generic /upload to get URL
+      final upReq = http.MultipartRequest('POST', Uri.parse('$base/upload'))
+        ..headers['Authorization'] = 'Bearer $token';
+      upReq.files.add(await _buildMultipartImage('file', picked));
+      final upSent = await upReq.send();
+      final upResp = await http.Response.fromStream(upSent);
+      if (upResp.statusCode < 200 || upResp.statusCode >= 300) {
+        throw Exception('Upload URL failed (${upResp.statusCode}) ${upResp.body}');
+      }
+      final upBody = jsonDecode(upResp.body);
+      final url = (upBody is Map ? (upBody['url'] ?? upBody['data']?['url']) : null)?.toString();
+      if (url == null || url.isEmpty) {
+        throw Exception('Missing url from /upload');
+      }
+
+      // 2) update current user with URL
+      final put = await http.put(
+        Uri.parse('$base/users/me'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: jsonEncode({'profilepicture': url}),
+      );
+      if (put.statusCode < 200 || put.statusCode >= 300) {
+        throw Exception('PUT /users/me failed (${put.statusCode}) ${put.body}');
+      }
+      return url;
+    }
+
+    try {
+      String? url = await _tryDirectUserUpload();   // prefer single endpoint
+      url ??= await _uploadGetUrlThenPutUser();     // fallback flow
+
+      setState(() => profileUrl = url!);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('profilepicture', url);
+
+      if (!mounted) return;
+      ToastHelper.showCustomToast(context, 'Profile picture updated', isSuccess: true, errorMessage: '');
     } catch (e) {
       debugPrint('Upload error: $e');
+      if (!mounted) return;
+      ToastHelper.showCustomToast(context, 'Failed to upload', isSuccess: false, errorMessage: e.toString());
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -309,7 +379,6 @@ class _ProfilePageState extends State<MerchantProfilePage> {
     );
   }
 
-  // --- Offline banner (shows only when DNS/offline happens) ---
   Widget _offlineBanner() {
     if (!_offline) return const SizedBox.shrink();
     return Container(
@@ -330,7 +399,6 @@ class _ProfilePageState extends State<MerchantProfilePage> {
     );
   }
 
-  // --- Review/KYC banner (stable children — no null/child flipping) ---
   Widget _reviewBanner() {
     if (isVerified || applicationStatus == 'approved') return const SizedBox.shrink();
 
@@ -410,7 +478,7 @@ class _ProfilePageState extends State<MerchantProfilePage> {
         backgroundImage: profileUrl.isNotEmpty ? NetworkImage(profileUrl) : null,
         child: profileUrl.isEmpty
             ? const Icon(Icons.person, size: 28, color: Colors.black45)
-            : const SizedBox.shrink(), // stable child
+            : const SizedBox.shrink(),
       ),
     );
 
@@ -432,7 +500,6 @@ class _ProfilePageState extends State<MerchantProfilePage> {
       ),
     );
 
-    // Layout: header block + card below (no negative sizes, no overflows)
     return Column(
       children: [
         Container(
@@ -442,7 +509,6 @@ class _ProfilePageState extends State<MerchantProfilePage> {
             borderRadius: const BorderRadius.vertical(bottom: Radius.circular(20)),
           ),
         ),
-        // Overlap visually without affecting layout height
         Transform.translate(
           offset: const Offset(0, -40),
           child: Container(
@@ -500,8 +566,6 @@ class _ProfilePageState extends State<MerchantProfilePage> {
             ),
           ),
         ),
-        // No negative SizedBox here. Give a small positive spacer so the next
-        // section never collides even on small screens.
         const SizedBox(height: 4),
       ],
     );
@@ -582,11 +646,10 @@ class _ProfilePageState extends State<MerchantProfilePage> {
 
   Widget _otherDetailsGrid() {
     final items = <_DetailItem>[
-      _DetailItem('Post on Marketplace', Icons.qr_code_2, () { _openBottomSheet(const ProfileQrPage()); }),
+      _DetailItem('Marketplace', Icons.shop, () { _openBottomSheet(const ProfileQrPage()); }),
+      _DetailItem('promotions', Icons.rocket, () { _openBottomSheet(const ChangePasswordPage()); }),
+      _DetailItem('Latest arrival', Icons.shop_2, () {}),
       _DetailItem('My Address', Icons.location_on, () { _openBottomSheet(const AddressPage()); }),
-      _DetailItem('Change Password', Icons.lock_outline, () { _openBottomSheet(const ChangePasswordPage()); }),
-      _DetailItem('Post Latest arrival', Icons.notifications_none, () {}),
-      _DetailItem('Language', Icons.language, () {}),
       _DetailItem('Logout', Icons.logout, _logout),
     ];
 
@@ -603,7 +666,7 @@ class _ProfilePageState extends State<MerchantProfilePage> {
         children: [
           const Padding(
             padding: EdgeInsets.fromLTRB(6, 8, 6, 10),
-            child: Text('Other Details', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+            child: Text('My Products', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
           ),
           GridView.builder(
             itemCount: items.length,
