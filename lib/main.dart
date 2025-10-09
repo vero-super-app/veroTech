@@ -1,10 +1,9 @@
-// lib/main.dart
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
-// Deep links (v6+ API: the stream emits initial + subsequent links)
+// Deep links
 import 'package:app_links/app_links.dart';
 
 // Firebase
@@ -27,10 +26,17 @@ import 'package:vero360_app/services/api_config.dart';
 
 final GlobalKey<NavigatorState> navKey = GlobalKey<NavigatorState>();
 
+/// Small snapshot we compute before runApp, so the first frame shows the correct shell.
+class BootSnapshot {
+  final String shell; // 'merchant' | 'customer' | 'login'
+  final String email;
+  BootSnapshot({required this.shell, required this.email});
+}
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize Firebase (replace options with your own if needed)
+  // Firebase (best-effort)
   try {
     await Firebase.initializeApp(
       options: const FirebaseOptions(
@@ -43,18 +49,36 @@ Future<void> main() async {
         measurementId: "",
       ),
     );
-  } catch (_) {
-    // swallow init errors; app can still run
-  }
+  } catch (_) { /* ignore */ }
 
-  // Initialize API base once (auto-picks local vs prod; persists)
+  // Init API base
   await ApiConfig.init();
 
-  runApp(const MyApp());
+  // Decide initial shell BEFORE first frame
+  final prefs = await SharedPreferences.getInstance();
+  final token = prefs.getString('jwt_token') ??
+      prefs.getString('token') ??
+      prefs.getString('authToken') ??
+      '';
+  final cachedRole = (prefs.getString('user_role') ?? '').toLowerCase();
+  final email = prefs.getString('email') ?? '';
+
+  String initialShell;
+  if (token.isEmpty) {
+    initialShell = 'login';
+  } else if (cachedRole == 'merchant') {
+    initialShell = 'merchant';
+  } else {
+    // default to customer when token exists but no cached role yet
+    initialShell = 'customer';
+  }
+
+  runApp(MyApp(initial: BootSnapshot(shell: initialShell, email: email)));
 }
 
 class MyApp extends StatefulWidget {
-  const MyApp({Key? key}) : super(key: key);
+  final BootSnapshot initial;
+  const MyApp({Key? key, required this.initial}) : super(key: key);
   @override
   State<MyApp> createState() => _MyAppState();
 }
@@ -63,23 +87,23 @@ class _MyAppState extends State<MyApp> {
   late final AppLinks _appLinks;
   StreamSubscription<Uri>? _sub;
 
-  // Track what shell we think we're on to avoid nav loops
-  String _currentShell = 'bottom'; // 'bottom' | 'merchant' | 'login'
-  bool _didFastRedirect = false;
+  // Track shell so verification can correct if needed
+  late String _currentShell; // 'merchant' | 'customer' | 'login'
 
   @override
   void initState() {
     super.initState();
+    _currentShell = widget.initial.shell; // show the cached shell immediately
     _initDeepLinks();
-    // Run the role check in the FIRST frame so initialRoute shows instantly.
+
+    // Verify role with server after first frame (fast), and correct if needed.
     SchedulerBinding.instance.addPostFrameCallback((_) {
-      _fastRedirectFromCache();          // instant, no network
-      _verifyRoleFromServerInBg();       // short network check; may correct
+      _verifyRoleFromServerInBg();
     });
   }
 
   Future<void> _initDeepLinks() async {
-    _appLinks = AppLinks(); // singleton
+    _appLinks = AppLinks();
     _sub = _appLinks.uriLinkStream.listen(
       (uri) {
         if (uri != null) _routeFor(uri);
@@ -89,7 +113,7 @@ class _MyAppState extends State<MyApp> {
   }
 
   void _routeFor(Uri uri) {
-    // Handle: vero360://users/me  -> open a page that calls /users/me
+    // vero360://users/me
     if (uri.scheme == 'vero360' && uri.host == 'users' && uri.path == '/me') {
       navKey.currentState?.push(
         MaterialPageRoute(builder: (_) => const ProfileFromLinkPage()),
@@ -103,78 +127,7 @@ class _MyAppState extends State<MyApp> {
     super.dispose();
   }
 
-  // ---- Fast redirect using cached role (no spinner) ----
-  Future<void> _fastRedirectFromCache() async {
-    final prefs = await SharedPreferences.getInstance();
-    final cachedRole = (prefs.getString('user_role') ?? '').toLowerCase();
-    final email = prefs.getString('email') ?? '';
-
-    if (cachedRole == 'merchant') {
-      // Initial route shows Bottomnavbar; replace it immediately with Merchant.
-      _pushMerchant(email);
-      _didFastRedirect = true;
-    } else if (cachedRole == 'customer') {
-      // Stay on Bottomnavbar (already initialRoute)
-      _currentShell = 'bottom';
-    } else {
-      // Unknown: if no token, optionally send to login (commented to keep your UX)
-      final token = prefs.getString('jwt_token') ??
-          prefs.getString('token') ??
-          prefs.getString('authToken') ?? '';
-      if (token == '') {
-        // _pushLogin();  // enable if you want login-first UX
-      }
-    }
-  }
-
-  // ---- Verify with server quickly; correct shell if needed ----
-  Future<void> _verifyRoleFromServerInBg() async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('jwt_token') ??
-        prefs.getString('token') ??
-        prefs.getString('authToken') ?? '';
-
-    if (token.isEmpty) return;
-
-    final base = ApiConfig.prod ?? 'https://vero-backend.onrender.com';
-
-    try {
-      final resp = await http
-          .get(
-            Uri.parse('$base/users/me'),
-            headers: {'Authorization': 'Bearer $token', 'Accept': 'application/json'},
-          )
-          .timeout(const Duration(seconds: 5)); // be snappy
-
-      if (resp.statusCode == 200) {
-        final decoded = json.decode(resp.body);
-        final user = (decoded is Map && decoded['data'] is Map)
-            ? Map<String, dynamic>.from(decoded['data'])
-            : (decoded is Map ? Map<String, dynamic>.from(decoded) : <String, dynamic>{});
-
-        // Persist normalized fields so profile page sees correct values
-        await _persistUserToPrefs(prefs, user);
-
-        final wantMerchant = _isMerchant(user);
-        final wantShell = wantMerchant ? 'merchant' : 'bottom';
-
-        if (_currentShell != wantShell) {
-          // Correct the shell if cache was wrong or we haven't redirected yet
-          if (wantMerchant) {
-            _pushMerchant((user['email'] ?? '').toString());
-          } else {
-            _pushBottom();
-          }
-        }
-      } else if (resp.statusCode == 401 || resp.statusCode == 403) {
-        await _clearAuth(prefs);
-        _pushLogin();
-      }
-    } catch (_) {
-      // Offline/DNS: keep whatever we showed from cache
-    }
-  }
-
+  // ---- Role utilities ----
   bool _isMerchant(Map<String, dynamic> u) {
     final role = (u['role'] ?? u['accountType'] ?? '').toString().toLowerCase();
     final roles = (u['roles'] is List)
@@ -216,6 +169,54 @@ class _MyAppState extends State<MyApp> {
     await prefs.setString('user_role', normalizedRole);
   }
 
+  Future<void> _verifyRoleFromServerInBg() async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('jwt_token') ??
+        prefs.getString('token') ??
+        prefs.getString('authToken') ??
+        '';
+    if (token.isEmpty) {
+      if (_currentShell != 'login') _pushLogin();
+      return;
+    }
+
+    final base = await ApiConfig.readBase(); // use your configured base
+
+    try {
+      final resp = await http
+          .get(
+            Uri.parse('$base/users/me'),
+            headers: {'Authorization': 'Bearer $token', 'Accept': 'application/json'},
+          )
+          .timeout(const Duration(seconds: 6));
+
+      if (resp.statusCode == 200) {
+        final decoded = json.decode(resp.body);
+        final user = (decoded is Map && decoded['data'] is Map)
+            ? Map<String, dynamic>.from(decoded['data'])
+            : (decoded is Map ? Map<String, dynamic>.from(decoded) : <String, dynamic>{});
+
+        await _persistUserToPrefs(prefs, user);
+
+        final wantMerchant = _isMerchant(user);
+        final wantShell = wantMerchant ? 'merchant' : 'customer';
+
+        if (_currentShell != wantShell) {
+          if (wantMerchant) {
+            _pushMerchant((user['email'] ?? '').toString());
+          } else {
+            _pushBottom();
+          }
+        }
+      } else if (resp.statusCode == 401 || resp.statusCode == 403) {
+        await _clearAuth(prefs);
+        _pushLogin();
+      }
+    } catch (_) {
+      // offline/DNS — keep whatever we showed from cache
+    }
+  }
+
   Future<void> _clearAuth(SharedPreferences prefs) async {
     await prefs.remove('jwt_token');
     await prefs.remove('token');
@@ -223,6 +224,7 @@ class _MyAppState extends State<MyApp> {
     await prefs.remove('user_role');
   }
 
+  // ---- Navigation helpers ----
   void _pushMerchant(String email) {
     if (!mounted) return;
     _currentShell = 'merchant';
@@ -234,7 +236,7 @@ class _MyAppState extends State<MyApp> {
 
   void _pushBottom() {
     if (!mounted) return;
-    _currentShell = 'bottom';
+    _currentShell = 'customer';
     navKey.currentState?.pushAndRemoveUntil(
       MaterialPageRoute(builder: (_) => const Bottomnavbar(email: '')),
       (route) => false,
@@ -250,8 +252,22 @@ class _MyAppState extends State<MyApp> {
     );
   }
 
+  // ---- App ----
   @override
   Widget build(BuildContext context) {
+    // Show the correct shell IMMEDIATELY based on cached decision
+    final Widget home;
+    switch (_currentShell) {
+      case 'merchant':
+        home = MerchantBottomnavbar(email: widget.initial.email);
+        break;
+      case 'customer':
+        home = const Bottomnavbar(email: '');
+        break;
+      default:
+        home = const LoginScreen();
+    }
+
     return MaterialApp(
       navigatorKey: navKey,
       debugShowCheckedModeBanner: false,
@@ -260,21 +276,15 @@ class _MyAppState extends State<MyApp> {
         useMaterial3: true,
         colorSchemeSeed: const Color(0xFFFF8A00),
       ),
-      // ✅ Keep your original initial route for instant boot
-      initialRoute: '/Bottomnavbar',
+      // Do NOT force an initialRoute that always shows customer first.
+      home: home,
       routes: {
-        '/Bottomnavbar': (context) => const Bottomnavbar(email: ''),
         '/marketplace': (context) => const Bottomnavbar(email: ''),
         '/signup': (context) => const RegisterScreen(),
         '/login': (context) => const LoginScreen(),
         '/cartpage': (context) =>
-            _authGuard(context, CartPage(cartService: CartService('https://vero-backend.onrender.com'))),
+            AuthGuard(child: CartPage(cartService: CartService('https://vero-backend.onrender.com'))),
       },
     );
   }
-}
-
-/// Ensures restricted pages require login (wrap target page in your AuthGuard)
-Widget _authGuard(BuildContext context, Widget page) {
-  return AuthGuard(child: page);
 }

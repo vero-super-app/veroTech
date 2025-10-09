@@ -92,59 +92,86 @@ class _ProfilePageState extends State<MerchantProfilePage> {
         '';
   }
 
-  Future<void> _persistUserToPrefs(Map<String, dynamic> data) async {
-    final prefs = await SharedPreferences.getInstance();
-    final user = (data['user'] is Map) ? (data['user'] as Map) : data;
+bool _isUnderReviewStatus(String app, String kyc, bool verified) {
+  if (verified) return false;
+  final a = (app   ).trim().toLowerCase();
+  final k = (kyc   ).trim().toLowerCase();
 
-    String _join(String? a, String? b) {
-      final parts = [a, b].where((x) => x != null && x!.trim().isNotEmpty).map((x) => x!.trim()).toList();
-      return parts.isEmpty ? '' : parts.join(' ');
-    }
+  const underReview = {
+    'submitted', 'pending', 'under_review', 'in_review', 'awaiting_review'
+  };
 
-    final userName = (user['name'] ?? _join(user['firstName'], user['lastName'])).toString();
-    final emailVal = (user['email'] ?? user['userEmail'] ?? '').toString();
-    final phoneVal = (user['phone'] ?? '').toString();
-    final picVal   = (user['profilepicture'] ?? user['profilePicture'] ?? '').toString();
+  // Under review if either applicationStatus OR kycStatus is in those states
+  return underReview.contains(a) || underReview.contains(k) || k == 'pending';
+}
 
-    String addr = 'No Address';
-    final addresses = user['addresses'];
-    if (addresses is List && addresses.isNotEmpty) {
-      final first = addresses.first;
-      if (first is Map && first['address'] != null) addr = first['address'].toString();
-      else if (first is String && first.trim().isNotEmpty) addr = first;
-    } else if (user['address'] != null) {
-      addr = user['address'].toString();
-    }
+Future<void> _optimisticallyMarkUnderReview() async {
+  // Flip UI immediately after form submit
+  setState(() {
+    applicationStatus = 'submitted';
+    kycStatus = 'pending';
+    reviewPending = true;
+  });
+  final prefs = await SharedPreferences.getInstance();
+  await prefs.setString('applicationStatus', 'submitted');
+  await prefs.setString('kycStatus', 'pending');
+  await prefs.setBool('merchant_review_pending', true);
+}
 
-    final serverAppStatus = (user['applicationStatus'] ?? user['merchantApplicationStatus'] ?? '').toString().toLowerCase();
-    final serverKycStatus = (user['kycStatus'] ?? '').toString().toLowerCase();
-    final serverIsVerified = (user['isVerified'] == true) || (user['merchantVerified'] == true) || (user['verified'] == true);
+Future<void> _persistUserToPrefs(Map<String, dynamic> data) async {
+  final prefs = await SharedPreferences.getInstance();
+  final user = (data['user'] is Map) ? (data['user'] as Map) : data;
 
-    setState(() {
-      name       = (userName.trim().isEmpty) ? 'Guest User' : userName.trim();
-      email      = (emailVal.trim().isEmpty) ? 'No Email' : emailVal.trim();
-      phone      = (phoneVal.trim().isEmpty) ? 'No Phone' : phoneVal.trim();
-      address    = (addr.trim().isEmpty) ? 'No Address' : addr.trim();
-      profileUrl = picVal;
-
-      if (serverAppStatus.isNotEmpty) applicationStatus = serverAppStatus;
-      if (serverKycStatus.isNotEmpty) kycStatus = serverKycStatus;
-      isVerified = serverIsVerified;
-
-      reviewPending = !isVerified && applicationStatus != 'approved' && applicationStatus != 'rejected';
-    });
-
-    await prefs.setString('fullName', name);
-    await prefs.setString('name', name);
-    await prefs.setString('email', email);
-    await prefs.setString('phone', phone);
-    await prefs.setString('address', address);
-    await prefs.setString('profilepicture', profileUrl);
-    await prefs.setString('applicationStatus', applicationStatus);
-    await prefs.setString('kycStatus', kycStatus);
-    await prefs.setBool('merchant_verified', isVerified);
-    await prefs.setBool('merchant_review_pending', reviewPending);
+  String _join(String? a, String? b) {
+    final parts = [a, b].where((x) => x != null && x!.trim().isNotEmpty).map((x) => x!.trim()).toList();
+    return parts.isEmpty ? '' : parts.join(' ');
   }
+
+  final userName = (user['name'] ?? _join(user['firstName'], user['lastName'])).toString();
+  final emailVal = (user['email'] ?? user['userEmail'] ?? '').toString();
+  final phoneVal = (user['phone'] ?? '').toString();
+  final picVal   = (user['profilepicture'] ?? user['profilePicture'] ?? '').toString();
+
+  String addr = 'No Address';
+  final addresses = user['addresses'];
+  if (addresses is List && addresses.isNotEmpty) {
+    final first = addresses.first;
+    if (first is Map && first['address'] != null) addr = first['address'].toString();
+    else if (first is String && first.trim().isNotEmpty) addr = first;
+  } else if (user['address'] != null) {
+    addr = user['address'].toString();
+  }
+
+  final serverAppStatus = (user['applicationStatus'] ?? user['merchantApplicationStatus'] ?? '').toString().toLowerCase();
+  final serverKycStatus = (user['kycStatus'] ?? '').toString().toLowerCase();
+  final serverIsVerified = (user['isVerified'] == true) || (user['merchantVerified'] == true) || (user['verified'] == true);
+
+  setState(() {
+    name       = (userName.trim().isEmpty) ? 'Guest User' : userName.trim();
+    email      = (emailVal.trim().isEmpty) ? 'No Email' : emailVal.trim();
+    phone      = (phoneVal.trim().isEmpty) ? 'No Phone' : phoneVal.trim();
+    address    = (addr.trim().isEmpty) ? 'No Address' : addr.trim();
+    profileUrl = picVal;
+
+    if (serverAppStatus.isNotEmpty) applicationStatus = serverAppStatus;
+    if (serverKycStatus.isNotEmpty) kycStatus = serverKycStatus;
+    isVerified = serverIsVerified;
+
+    // 🔁 ⬇️ replace your old reviewPending line with this:
+    reviewPending = _isUnderReviewStatus(applicationStatus, kycStatus, isVerified);
+  });
+
+  await prefs.setString('fullName', name);
+  await prefs.setString('name', name);
+  await prefs.setString('email', email);
+  await prefs.setString('phone', phone);
+  await prefs.setString('address', address);
+  await prefs.setString('profilepicture', profileUrl);
+  await prefs.setString('applicationStatus', applicationStatus);
+  await prefs.setString('kycStatus', kycStatus);
+  await prefs.setBool('merchant_verified', isVerified);
+  await prefs.setBool('merchant_review_pending', reviewPending);
+}
 
   Future<void> _fetchCurrentUser() async {
     setState(() { _loading = true; _offline = false; });
@@ -429,74 +456,69 @@ class _ProfilePageState extends State<MerchantProfilePage> {
   }
 
   Widget _reviewBanner() {
-    if (isVerified || applicationStatus == 'approved') return const SizedBox.shrink();
+  // Hide entirely if verified/approved
+  if (isVerified || applicationStatus == 'approved') return const SizedBox.shrink();
 
-    final bool showKycCta = (applicationStatus.isEmpty ||
-                             applicationStatus == 'unverified' ||
-                             applicationStatus == 'incomplete' ||
-                             (kycStatus.isNotEmpty && kycStatus != 'complete' && kycStatus != 'pending'))
-                            && !isVerified;
+  final bool underReview = _isUnderReviewStatus(applicationStatus, kycStatus, isVerified);
 
-    final String message = showKycCta
-        ? 'Apply for a merchant account'
-        : 'Your application is under review';
+  final String message = underReview
+      ? 'Your application is under review'
+      : 'start your KYC to become a verified merchant';
 
-    final Widget spacing = showKycCta ? const SizedBox(width: 8) : const SizedBox.shrink();
-    final Widget cta = showKycCta
-        ? ConstrainedBox(
-            constraints: const BoxConstraints(minWidth: 0),
-            child: TextButton(
-              onPressed: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => MerchantApplicationForm(
-                      onFinished: () async {
-                        if (!mounted) return;
-                        ToastHelper.showCustomToast(
-                          context,
-                          'Application submitted',
-                          isSuccess: true,
-                          errorMessage: '',
-                        );
-                        await _fetchCurrentUser(); // switch to "under review" after submit
-                        Navigator.of(context).pop();
-                      },
-                    ),
-                  ),
-                );
-              },
-              child: const Text('Start KYC'),
-            ),
-          )
-        : const SizedBox.shrink();
+  final Widget cta = underReview
+      ? const SizedBox.shrink()
+      : TextButton(
+          onPressed: () {
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => MerchantApplicationForm(
+                  onFinished: () async {
+                    if (!mounted) return;
+                    // ✅ switch UI immediately, then refresh from server
+                    await _optimisticallyMarkUnderReview();
+                    ToastHelper.showCustomToast(
+                      context,
+                      'Application submitted',
+                      isSuccess: true,
+                      errorMessage: '',
+                    );
+                    await _fetchCurrentUser();
+                    Navigator.of(context).pop();
+                  },
+                ),
+              ),
+            );
+          },
+          child: const Text('Start KYC'),
+        );
 
-    return Container(
-      margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFFF3E5),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFFFD9B3)),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.info_outline, color: Color(0xFFB86E00)),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              message,
-              style: const TextStyle(fontWeight: FontWeight.w600),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
+  return Container(
+    margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+    padding: const EdgeInsets.all(14),
+    decoration: BoxDecoration(
+      color: const Color(0xFFFFF3E5),
+      borderRadius: BorderRadius.circular(14),
+      border: Border.all(color: const Color(0xFFFFD9B3)),
+    ),
+    child: Row(
+      children: [
+        const Icon(Icons.info_outline, color: Color(0xFFB86E00)),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            message,
+            style: const TextStyle(fontWeight: FontWeight.w600),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
           ),
-          spacing,
-          cta,
-        ],
-      ),
-    );
-  }
-   
+        ),
+        if (!underReview) const SizedBox(width: 8),
+        cta,
+      ],
+    ),
+  );
+}
+
   
 
   // --- Header card: safe layout (no negative heights, no short Stack) ---
@@ -515,10 +537,10 @@ class _ProfilePageState extends State<MerchantProfilePage> {
 
     final bool approved = isVerified || applicationStatus == 'approved';
     final Color chipBg  = approved ? const Color(0xFFE7F6EC) : const Color(0xFFFFF3E5);
-    final Color chipFg  = approved ? Colors.green.shade700 : const Color(0xFFB86E00);
+    final Color chipFg  = approved ? Colors.green.shade700 : const Color.fromARGB(255, 235, 52, 1);
     final String chipText = approved
         ? 'APPROVED'
-        : (applicationStatus.isEmpty ? 'UNVERIFIED' : applicationStatus.toUpperCase());
+        : (applicationStatus.isEmpty ? 'UNVERIFIED MERCHANT' : applicationStatus.toUpperCase());
 
     final statusChip = Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
