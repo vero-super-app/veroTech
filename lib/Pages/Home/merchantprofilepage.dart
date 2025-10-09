@@ -32,7 +32,6 @@ class MerchantProfilePage extends StatefulWidget {
 
 class _ProfilePageState extends State<MerchantProfilePage> {
   final Color _brandNavy = const Color(0xFF16284C);
-  final Color _veroOrange = const Color(0xFFFF8A00);
   final Color _cardBg = Colors.white;
   final Color _chipGrey = const Color(0xFFF4F5F7);
 
@@ -43,13 +42,12 @@ class _ProfilePageState extends State<MerchantProfilePage> {
   String profileUrl = "";
 
   bool _loading = false;
+  bool _offline = false; // show graceful banner if users/me fails (DNS/offline)
 
-  String applicationStatus = ""; // approved | pending | under_review | rejected | ''
-  String kycStatus = "";         // complete | incomplete | pending | ''
+  String applicationStatus = ""; // approved | pending | under_review | rejected | submitted | ''
+  String kycStatus = "";         // complete | incomplete | pending | unverified | ''
+  bool isVerified = false;       // from API (isVerified / merchantVerified)
   bool reviewPending = false;
-
-  double balance = 450;
-  double cashback = 23;
 
   @override
   void initState() {
@@ -68,6 +66,7 @@ class _ProfilePageState extends State<MerchantProfilePage> {
       profileUrl = prefs.getString('profilepicture') ?? '';
       applicationStatus = (prefs.getString('applicationStatus') ?? '').toLowerCase();
       kycStatus        = (prefs.getString('kycStatus') ?? '').toLowerCase();
+      isVerified       = prefs.getBool('merchant_verified') ?? false;
       reviewPending    = prefs.getBool('merchant_review_pending') ?? false;
     });
   }
@@ -90,7 +89,12 @@ class _ProfilePageState extends State<MerchantProfilePage> {
     final prefs = await SharedPreferences.getInstance();
     final user = (data['user'] is Map) ? (data['user'] as Map) : data;
 
-    final userName = (user['name'] ?? _joinName(user['firstName'], user['lastName'], fallback: '')).toString();
+    String _join(String? a, String? b) {
+      final parts = [a, b].where((x) => x != null && x!.trim().isNotEmpty).map((x) => x!.trim()).toList();
+      return parts.isEmpty ? '' : parts.join(' ');
+    }
+
+    final userName = (user['name'] ?? _join(user['firstName'], user['lastName'])).toString();
     final emailVal = (user['email'] ?? user['userEmail'] ?? '').toString();
     final phoneVal = (user['phone'] ?? '').toString();
     final picVal   = (user['profilepicture'] ?? user['profilePicture'] ?? '').toString();
@@ -105,20 +109,23 @@ class _ProfilePageState extends State<MerchantProfilePage> {
       addr = user['address'].toString();
     }
 
-    final serverAppStatus = (user['applicationStatus'] ?? '').toString().toLowerCase();
+    // Normalize statuses
+    final serverAppStatus = (user['applicationStatus'] ?? user['merchantApplicationStatus'] ?? '').toString().toLowerCase();
     final serverKycStatus = (user['kycStatus'] ?? '').toString().toLowerCase();
+    final serverIsVerified = (user['isVerified'] == true) || (user['merchantVerified'] == true) || (user['verified'] == true);
 
     setState(() {
-      name  = userName.trim().isEmpty ? 'Guest User' : userName.trim();
-      email = emailVal.trim().isEmpty ? 'No Email' : emailVal.trim();
-      phone = phoneVal.trim().isEmpty ? 'No Phone' : phoneVal.trim();
-      address = addr.trim().isEmpty ? 'No Address' : addr.trim();
+      name       = (userName.trim().isEmpty) ? 'Guest User' : userName.trim();
+      email      = (emailVal.trim().isEmpty) ? 'No Email' : emailVal.trim();
+      phone      = (phoneVal.trim().isEmpty) ? 'No Phone' : phoneVal.trim();
+      address    = (addr.trim().isEmpty) ? 'No Address' : addr.trim();
       profileUrl = picVal;
 
       if (serverAppStatus.isNotEmpty) applicationStatus = serverAppStatus;
       if (serverKycStatus.isNotEmpty) kycStatus = serverKycStatus;
+      isVerified = serverIsVerified;
 
-      reviewPending = applicationStatus != 'approved';
+      reviewPending = !isVerified && applicationStatus != 'approved' && applicationStatus != 'rejected';
     });
 
     await prefs.setString('fullName', name);
@@ -129,11 +136,12 @@ class _ProfilePageState extends State<MerchantProfilePage> {
     await prefs.setString('profilepicture', profileUrl);
     await prefs.setString('applicationStatus', applicationStatus);
     await prefs.setString('kycStatus', kycStatus);
+    await prefs.setBool('merchant_verified', isVerified);
     await prefs.setBool('merchant_review_pending', reviewPending);
   }
 
   Future<void> _fetchCurrentUser() async {
-    setState(() => _loading = true);
+    setState(() { _loading = true; _offline = false; });
     try {
       final token = await _getAuthToken();
       if (token.isEmpty) { setState(() => _loading = false); return; }
@@ -157,6 +165,8 @@ class _ProfilePageState extends State<MerchantProfilePage> {
         );
       }
     } catch (e) {
+      // Offline/DNS failure should not break layout
+      setState(() => _offline = true);
       debugPrint('Error fetching user: $e');
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -299,15 +309,69 @@ class _ProfilePageState extends State<MerchantProfilePage> {
     );
   }
 
-  // --- KYC / Review banner (overflow-safe) ---
+  // --- Offline banner (shows only when DNS/offline happens) ---
+  Widget _offlineBanner() {
+    if (!_offline) return const SizedBox.shrink();
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFEDEE),
+        border: Border.all(color: const Color(0xFFFFC9CD)),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: const [
+          Icon(Icons.wifi_off_rounded, color: Colors.red),
+          SizedBox(width: 8),
+          Expanded(child: Text('You are offline or the server is unreachable. Showing cached info.', style: TextStyle(fontWeight: FontWeight.w600))),
+        ],
+      ),
+    );
+  }
+
+  // --- Review/KYC banner (stable children — no null/child flipping) ---
   Widget _reviewBanner() {
-    if (!reviewPending) return const SizedBox.shrink();
+    if (isVerified || applicationStatus == 'approved') return const SizedBox.shrink();
 
-    final statusText = (applicationStatus.isEmpty || applicationStatus == 'pending' || applicationStatus == 'under_review')
-        ? 'Application is under review'
-        : (applicationStatus == 'rejected' ? 'Application rejected' : applicationStatus);
+    final bool showKycCta = (applicationStatus.isEmpty ||
+                             applicationStatus == 'unverified' ||
+                             applicationStatus == 'incomplete' ||
+                             (kycStatus.isNotEmpty && kycStatus != 'complete' && kycStatus != 'pending'))
+                            && !isVerified;
 
-    final needsKyc = !(kycStatus == 'complete');
+    final String message = showKycCta
+        ? 'Apply for a merchant account'
+        : 'Your application is under review';
+
+    final Widget spacing = showKycCta ? const SizedBox(width: 8) : const SizedBox.shrink();
+    final Widget cta = showKycCta
+        ? ConstrainedBox(
+            constraints: const BoxConstraints(minWidth: 0),
+            child: TextButton(
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => MerchantApplicationForm(
+                      onFinished: () async {
+                        if (!mounted) return;
+                        ToastHelper.showCustomToast(
+                          context,
+                          'Application submitted',
+                          isSuccess: true,
+                          errorMessage: '',
+                        );
+                        await _fetchCurrentUser(); // switch to "under review" after submit
+                        Navigator.of(context).pop();
+                      },
+                    ),
+                  ),
+                );
+              },
+              child: const Text('Start KYC'),
+            ),
+          )
+        : const SizedBox.shrink();
 
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
@@ -323,41 +387,20 @@ class _ProfilePageState extends State<MerchantProfilePage> {
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              '$statusText.${needsKyc ? " Please complete your KYC." : ""}',
+              message,
               style: const TextStyle(fontWeight: FontWeight.w600),
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
             ),
           ),
-          if (needsKyc)
-            const SizedBox(width: 8),
-          if (needsKyc)
-            ConstrainedBox(
-              constraints: const BoxConstraints(minWidth: 0),
-              child: TextButton(
-                onPressed: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => MerchantApplicationForm(
-                        onFinished: () async {
-                          if (!mounted) return;
-                          ToastHelper.showCustomToast(context, 'KYC updated', isSuccess: true, errorMessage: '');
-                          await _fetchCurrentUser();
-                          Navigator.of(context).pop();
-                        },
-                      ),
-                    ),
-                  );
-                },
-                child: const Text('Finish KYC'),
-              ),
-            ),
+          spacing,
+          cta,
         ],
       ),
     );
   }
 
-  // --- Header card (overflow safe) ---
+  // --- Header card: safe layout (no negative heights, no short Stack) ---
   Widget _topProfileCard() {
     final avatar = GestureDetector(
       onTap: _showPhotoSheet,
@@ -365,108 +408,106 @@ class _ProfilePageState extends State<MerchantProfilePage> {
         radius: 26,
         backgroundColor: Colors.black12,
         backgroundImage: profileUrl.isNotEmpty ? NetworkImage(profileUrl) : null,
-        child: profileUrl.isEmpty ? const Icon(Icons.person, size: 28, color: Colors.black45) : null,
+        child: profileUrl.isEmpty
+            ? const Icon(Icons.person, size: 28, color: Colors.black45)
+            : const SizedBox.shrink(), // stable child
       ),
     );
 
-    final statusChip = Flexible(
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        decoration: BoxDecoration(
-          color: applicationStatus == 'approved' ? const Color(0xFFE7F6EC) : const Color(0xFFFFF3E5),
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Text(
-          applicationStatus.isEmpty ? '—' : applicationStatus.toUpperCase(),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            color: applicationStatus == 'approved' ? Colors.green.shade700 : const Color(0xFFB86E00),
-            fontWeight: FontWeight.w700,
-            fontSize: 12,
-          ),
-        ),
+    final bool approved = isVerified || applicationStatus == 'approved';
+    final Color chipBg  = approved ? const Color(0xFFE7F6EC) : const Color(0xFFFFF3E5);
+    final Color chipFg  = approved ? Colors.green.shade700 : const Color(0xFFB86E00);
+    final String chipText = approved
+        ? 'APPROVED'
+        : (applicationStatus.isEmpty ? 'UNVERIFIED' : applicationStatus.toUpperCase());
+
+    final statusChip = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(color: chipBg, borderRadius: BorderRadius.circular(20)),
+      child: Text(
+        chipText,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(color: chipFg, fontWeight: FontWeight.w700, fontSize: 12),
       ),
     );
 
-    return Stack(
+    // Layout: header block + card below (no negative sizes, no overflows)
+    return Column(
       children: [
         Container(
-          height: 140,
+          height: 120,
           decoration: BoxDecoration(
             color: _brandNavy,
             borderRadius: const BorderRadius.vertical(bottom: Radius.circular(20)),
           ),
         ),
-        Positioned.fill(
-          top: 16,
-          child: Align(
-            alignment: Alignment.topCenter,
-            child: Container(
-              margin: const EdgeInsets.symmetric(horizontal: 16),
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: _cardBg,
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 12, offset: const Offset(0, 6))],
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  avatar,
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
-                        const SizedBox(height: 2),
-                        Text(email, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.black54, fontSize: 13)),
-                        const SizedBox(height: 2),
-                        Text(phone, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.black54, fontSize: 13)),
-                        const SizedBox(height: 6),
-                        Row(
-                          children: [
-                            statusChip,
-                          ],
+        // Overlap visually without affecting layout height
+        Transform.translate(
+          offset: const Offset(0, -40),
+          child: Container(
+            margin: const EdgeInsets.symmetric(horizontal: 16),
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: _cardBg,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 12, offset: const Offset(0, 6))],
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                avatar,
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
+                      const SizedBox(height: 2),
+                      Text(email, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.black54, fontSize: 13)),
+                      const SizedBox(height: 2),
+                      Text(phone, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.black54, fontSize: 13)),
+                      const SizedBox(height: 6),
+                      Row(children: [Flexible(child: statusChip)]),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 4),
+                ConstrainedBox(
+                  constraints: const BoxConstraints.tightFor(width: 36),
+                  child: Align(
+                    alignment: Alignment.topRight,
+                    child: PopupMenuButton<String>(
+                      itemBuilder: (context) => const [
+                        PopupMenuItem<String>(
+                          value: 'active',
+                          enabled: false,
+                          child: Row(
+                            children: [
+                              Icon(Icons.info_outline, size: 16),
+                              SizedBox(width: 8),
+                              Text('Status'),
+                            ],
+                          ),
                         ),
                       ],
+                      icon: const Icon(Icons.more_horiz),
                     ),
                   ),
-                  const SizedBox(width: 4),
-                  ConstrainedBox(
-                    constraints: const BoxConstraints.tightFor(width: 36),
-                    child: Align(
-                      alignment: Alignment.topRight,
-                      child: PopupMenuButton<String>(
-                        itemBuilder: (context) => const [
-                          PopupMenuItem<String>(
-                            value: 'active',
-                            enabled: false,
-                            child: Row(
-                              children: [
-                                Icon(Icons.info_outline, size: 16),
-                                SizedBox(width: 8),
-                                Text('Status'),
-                              ],
-                            ),
-                          ),
-                        ],
-                        icon: const Icon(Icons.more_horiz),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         ),
+        // No negative SizedBox here. Give a small positive spacer so the next
+        // section never collides even on small screens.
+        const SizedBox(height: 4),
       ],
     );
   }
 
-  // --- Quick actions (strict no-overflow, stable order) ---
+  // --- Quick actions (no overflow) ---
   Widget _ordersQuickActions() {
     final items = <_QuickAction>[
       _QuickAction('My Orders', Icons.book, () => _openBottomSheet(const OrdersPage())),
@@ -488,11 +529,9 @@ class _ProfilePageState extends State<MerchantProfilePage> {
         builder: (context, c) {
           final maxW = c.maxWidth;
           const spacing = 10.0;
-          // choose a target tile width; compute how many can fit
           final targetTileWidth = 110.0;
           int perRow = math.max(2, (maxW / targetTileWidth).floor());
           perRow = perRow.clamp(2, 5);
-          // exact tile width accounting for spacing so it never overflows
           final tileW = (maxW - spacing * (perRow - 1)) / perRow;
 
           return Wrap(
@@ -529,7 +568,6 @@ class _ProfilePageState extends State<MerchantProfilePage> {
       ),
     );
   }
-
 
   void _openBottomSheet(Widget child) {
     showModalBottomSheet(
@@ -587,22 +625,28 @@ class _ProfilePageState extends State<MerchantProfilePage> {
 
   @override
   Widget build(BuildContext context) {
+    final bottomPad = MediaQuery.of(context).padding.bottom + 24;
+
     return Scaffold(
       backgroundColor: const Color(0xFFF3F4F7),
       appBar: _appBar(),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.only(bottom: 16),
-        child: Column(
-          children: [
-            _topProfileCard(),
-            const SizedBox(height: 12),
-            _reviewBanner(),
-            const SizedBox(height: 24),
-            _ordersQuickActions(),
-            _otherDetailsGrid(),
-            const LatestArrivalsSection(),
-            const SizedBox(height: 16),
-          ],
+      body: SafeArea(
+        bottom: true,
+        child: SingleChildScrollView(
+          padding: EdgeInsets.only(bottom: bottomPad),
+          child: Column(
+            children: [
+              _topProfileCard(),
+              _offlineBanner(),
+              const SizedBox(height: 12),
+              _reviewBanner(),
+              const SizedBox(height: 24),
+              _ordersQuickActions(),
+              _otherDetailsGrid(),
+              const LatestArrivalsSection(),
+              const SizedBox(height: 16),
+            ],
+          ),
         ),
       ),
     );
