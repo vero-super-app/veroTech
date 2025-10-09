@@ -7,6 +7,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 
+// ✅ add MIME + MediaType for correct multipart content-type
+import 'package:mime/mime.dart' as mime;
+import 'package:http_parser/http_parser.dart' as http_parser;
+
+// ✅ use your existing API base resolver (unchanged)
+import 'package:vero360_app/services/api_config.dart';
+
 import 'package:vero360_app/Pages/Home/myorders.dart';
 import 'package:vero360_app/Pages/QRcode.dart';
 
@@ -58,17 +65,16 @@ class _ProfilePageState extends State<ProfilePage> {
     _fetchCurrentUser();
   }
   
-Future<void> _loadUserData() async {
-  final prefs = await SharedPreferences.getInstance();
-  setState(() {
-    name      = prefs.getString('fullName') ?? prefs.getString('name') ?? 'Guest User';
-    email     = prefs.getString('email') ?? 'No Email';
-    phone     = prefs.getString('phone') ?? 'No Phone';
-    address   = prefs.getString('address') ?? 'No Address';
-    profileUrl= prefs.getString('profilepicture') ?? '';
-  });
-}
-
+  Future<void> _loadUserData() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      name      = prefs.getString('fullName') ?? prefs.getString('name') ?? 'Guest User';
+      email     = prefs.getString('email') ?? 'No Email';
+      phone     = prefs.getString('phone') ?? 'No Phone';
+      address   = prefs.getString('address') ?? 'No Address';
+      profileUrl= prefs.getString('profilepicture') ?? '';
+    });
+  }
 
   String _joinName(String? first, String? last, {required String fallback}) {
     final parts = [first, last].where((s) => s != null && s!.trim().isNotEmpty);
@@ -128,6 +134,35 @@ Future<void> _loadUserData() async {
     await prefs.setString('profilepicture', profileUrl);
   }
 
+  Future<void> _deleteProfilePicture() async {
+  final token = await _getAuthToken();
+  if (token.isEmpty) {
+    if (!mounted) return;
+    ToastHelper.showCustomToast(context, 'Please log in first', isSuccess: false, errorMessage: '');
+    return;
+  }
+  try {
+    setState(() => _loading = true);
+    final base = await ApiConfig.readBase();
+    final resp = await http.delete(
+      Uri.parse('$base/users/me/profile-picture'),
+      headers: {'Authorization': 'Bearer $token', 'Accept': 'application/json'},
+    );
+    if (resp.statusCode >= 200 && resp.statusCode < 300) {
+      setState(() => profileUrl = '');
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('profilepicture', '');
+      ToastHelper.showCustomToast(context, 'Profile picture removed', isSuccess: true, errorMessage: '');
+    } else {
+      ToastHelper.showCustomToast(context, 'Failed to remove', isSuccess: false, errorMessage: resp.body);
+    }
+  } catch (e) {
+    ToastHelper.showCustomToast(context, 'Failed to remove', isSuccess: false, errorMessage: e.toString());
+  } finally {
+    if (mounted) setState(() => _loading = false);
+  }
+}
+
   Future<void> _fetchCurrentUser() async {
     setState(() => _loading = true);
     try {
@@ -138,8 +173,9 @@ Future<void> _loadUserData() async {
         return;
       }
 
+      final base = await ApiConfig.readBase();
       final response = await http.get(
-        Uri.parse('https://vero-backend.onrender.com/users/me'),
+        Uri.parse('$base/users/me'),
         headers: {
           'Authorization': 'Bearer $token',
           'Accept': 'application/json',
@@ -199,16 +235,14 @@ Future<void> _loadUserData() async {
             ),
             if (profileUrl.isNotEmpty)
               ListTile(
-                leading: const Icon(Icons.remove_circle_outline),
-                title: const Text('Remove current photo (local)'),
-                onTap: () async {
-                  Navigator.pop(context);
-                  setState(() => profileUrl = '');
-                  final prefs = await SharedPreferences.getInstance();
-                  await prefs.setString('profilepicture', '');
-                  // If you also support deleting on server, call that endpoint here.
-                },
-              ),
+  leading: const Icon(Icons.remove_circle_outline),
+  title: const Text('Remove current photo'),
+  onTap: () async {
+    Navigator.pop(context);
+    await _deleteProfilePicture(); // ← calls backend & clears local
+  },
+),
+
           ],
         ),
       ),
@@ -227,116 +261,179 @@ Future<void> _loadUserData() async {
       await _uploadProfilePicture(file);
     } catch (e) {
       if (!mounted) return;
-         ToastHelper.showCustomToast(context, 'Could not pick image', isSuccess: false, errorMessage: '');
-    
-      // ScaffoldMessenger.of(context).showSnackBar(
-      //   SnackBar(content: Text(': $e')),
-      // );
+      ToastHelper.showCustomToast(
+        context,
+        'Could not pick image',
+        isSuccess: false,
+        errorMessage: '',
+      );
     }
   }
 
-  /// Upload endpoint assumed:
-  /// POST https://vero-backend.onrender.com/users/me/profile-picture
-  /// multipart/form-data with field name "file"
+  // ===== Helpers for upload: set correct image/* MIME on multipart =====
+  Future<http.MultipartFile> _toMultipart(String field, XFile picked) async {
+    if (kIsWeb) {
+      final bytes = await picked.readAsBytes();
+      final mt = mime.lookupMimeType('', headerBytes: bytes) ?? 'image/jpeg';
+      final parts = mt.split('/');
+      final ext = parts.length == 2 ? parts[1] : 'jpg';
+      return http.MultipartFile.fromBytes(
+        field,
+        bytes,
+        filename: 'profile.$ext',
+        contentType: http_parser.MediaType(parts[0], parts[1]),
+      );
+    } else {
+      final path = picked.path;
+      final mt = mime.lookupMimeType(path) ?? 'image/jpeg';
+      final parts = mt.split('/');
+      final name = path.split('/').last;
+      return await http.MultipartFile.fromPath(
+        field,
+        path,
+        filename: name,
+        contentType: http_parser.MediaType(parts[0], parts[1]),
+      );
+    }
+  }
+
+  /// POST $base/users/me/profile-picture (preferred).
+  /// Fallback: POST $base/upload → PUT $base/users/me { profilepicture: url }
   Future<void> _uploadProfilePicture(XFile picked) async {
     final token = await _getAuthToken();
     if (token.isEmpty) {
       if (!mounted) return;
-         ToastHelper.showCustomToast(context, 'Please log in to update your photo', isSuccess: false, errorMessage: '');
-    
+      ToastHelper.showCustomToast(
+        context,
+        'Please log in to update your photo',
+        isSuccess: false,
+        errorMessage: '',
+      );
       return;
     }
 
     setState(() => _loading = true);
-    try {
-      final uri =
-          Uri.parse('https://vero-backend.onrender.com/users/me/profile-picture');
+    final base = await ApiConfig.readBase();
 
+    Future<String?> _tryDirectUserUpload() async {
+      final uri = Uri.parse('$base/users/me/profile-picture');
       final req = http.MultipartRequest('POST', uri)
         ..headers['Authorization'] = 'Bearer $token';
 
-      if (kIsWeb) {
-        final bytes = await picked.readAsBytes();
-        req.files.add(http.MultipartFile.fromBytes(
-          'file',
-          bytes,
-          filename: 'logo_mark.jpg',
-        ));
-      } else {
-        req.files.add(await http.MultipartFile.fromPath('file', picked.path));
-      }
+      // ✅ use helper so backend sees image/* not application/octet-stream
+      req.files.add(await _toMultipart('file', picked));
 
       final sent = await req.send();
       final resp = await http.Response.fromStream(sent);
 
       if (resp.statusCode >= 200 && resp.statusCode < 300) {
-        final jsonMap = jsonDecode(resp.body);
-        final payload = (jsonMap is Map && jsonMap['data'] is Map)
-            ? Map<String, dynamic>.from(jsonMap['data'])
-            : (jsonMap is Map ? Map<String, dynamic>.from(jsonMap) : {});
-        final newUrl = (payload['profilepicture'] ??
-                payload['profilePicture'] ??
-                payload['url'] ??
-                '')
-            .toString();
-
-        setState(() => profileUrl = newUrl);
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('profilepicture', newUrl);
-
-        if (!mounted) return;
-           ToastHelper.showCustomToast(context, 'profile picture updated', isSuccess: true, errorMessage: '');
-      
-      } else {
-        debugPrint('Upload failed: ${resp.statusCode} ${resp.body}');
-        if (!mounted) return;
-           ToastHelper.showCustomToast(context, 'Failed to upload', isSuccess: false, errorMessage: '');
-     
+        final body = jsonDecode(resp.body);
+        final data = (body is Map && body['data'] is Map)
+            ? body['data'] as Map
+            : (body as Map? ?? {});
+        return (data['profilepicture'] ??
+                data['profilePicture'] ??
+                data['url'])
+            ?.toString();
       }
+      if (resp.statusCode == 404) return null; // fall back if route missing
+      throw Exception('Upload failed (${resp.statusCode}) ${resp.body}');
+    }
+
+    Future<String> _uploadGetUrlThenPutUser() async {
+      // 1) /upload to get URL
+      final upReq = http.MultipartRequest('POST', Uri.parse('$base/upload'))
+        ..headers['Authorization'] = 'Bearer $token';
+      upReq.files.add(await _toMultipart('file', picked));
+
+      final upSent = await upReq.send();
+      final upResp = await http.Response.fromStream(upSent);
+      if (upResp.statusCode < 200 || upResp.statusCode >= 300) {
+        throw Exception('Upload URL failed (${upResp.statusCode}) ${upResp.body}');
+      }
+      final upBody = jsonDecode(upResp.body);
+      final url = (upBody is Map ? (upBody['url'] ?? upBody['data']?['url']) : null)?.toString();
+      if (url == null || url.isEmpty) {
+        throw Exception('Missing url from /upload');
+      }
+
+      // 2) PUT /users/me with that URL
+      final put = await http.put(
+        Uri.parse('$base/users/me'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: jsonEncode({'profilepicture': url}),
+      );
+      if (put.statusCode < 200 || put.statusCode >= 300) {
+        throw Exception('PUT /users/me failed (${put.statusCode}) ${put.body}');
+      }
+      return url;
+    }
+
+    try {
+      String? url = await _tryDirectUserUpload(); // prefer single-endpoint
+      url ??= await _uploadGetUrlThenPutUser();   // fallback path
+
+      setState(() => profileUrl = url!);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('profilepicture', url);
+
+      if (!mounted) return;
+      ToastHelper.showCustomToast(
+        context,
+        'Profile picture updated',
+        isSuccess: true,
+        errorMessage: '',
+      );
     } catch (e) {
       debugPrint('Upload error: $e');
       if (!mounted) return;
-      
-     
+      ToastHelper.showCustomToast(
+        context,
+        'Failed to upload',
+        isSuccess: false,
+        errorMessage: e.toString(),
+      );
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
 
   Future<void> _logout() async {
-  setState(() => _loading = true);
-  try {
-    // 1) Tell the auth service to log out (server + local tokens)
-    await AuthService().logout(context: context);
+    setState(() => _loading = true);
+    try {
+      await AuthService().logout(context: context);
 
-    // 2) Clear locally cached profile bits (but don't nuke all prefs)
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('fullName');
-    await prefs.remove('name');
-    await prefs.remove('email');
-    await prefs.remove('phone');
-    await prefs.remove('address');
-    await prefs.remove('profilepicture');
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('fullName');
+      await prefs.remove('name');
+      await prefs.remove('email');
+      await prefs.remove('phone');
+      await prefs.remove('address');
+      await prefs.remove('profilepicture');
 
-    // Optional: small toast/snackbar
-    if (mounted) {
-      ToastHelper.showCustomToast(context, 'You have been logged out', isSuccess: true, errorMessage: '');
-     
+      if (mounted) {
+        ToastHelper.showCustomToast(
+          context,
+          'You have been logged out',
+          isSuccess: true,
+          errorMessage: '',
+        );
+      }
+    } catch (e) {
+      debugPrint('Logout error: $e');
+    } finally {
+      if (!mounted) return;
+      setState(() => _loading = false);
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+        (route) => false,
+      );
     }
-  } catch (e) {
-    debugPrint('Logout error: $e');
-  } finally {
-    if (!mounted) return;
-    setState(() => _loading = false);
-
-    // 3) Hard reset navigation so user can’t back into authed pages
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(builder: (_) => const LoginScreen()),
-      (route) => false,
-    );
   }
-}
-
 
   // ---------- UI helpers ----------
   PreferredSizeWidget _appBar() {
@@ -439,8 +536,6 @@ Future<void> _loadUserData() async {
                         const SizedBox(height: 6),
                         GestureDetector(
                           onTap: () {
-                            // You can navigate to a dedicated edit-profile page if you have one.
-                            // For now keeping your original bottom-sheet example:
                             _openBottomSheet(const MyBookingsPage());
                           },
                           child: Text(
@@ -455,14 +550,13 @@ Future<void> _loadUserData() async {
                       ],
                     ),
                   ),
-                  // 3-dots menu -> must say "Active"
                   PopupMenuButton<String>(
                     icon: const Icon(Icons.more_horiz),
                     onSelected: (_) {},
                     itemBuilder: (context) => [
                       PopupMenuItem<String>(
                         value: 'active',
-                        enabled: false, // just a status label
+                        enabled: false,
                         child: Row(
                           children: [
                             const Icon(Icons.circle, size: 10, color: Colors.green),

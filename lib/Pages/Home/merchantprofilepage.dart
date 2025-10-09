@@ -197,15 +197,14 @@ class _ProfilePageState extends State<MerchantProfilePage> {
           ),
           if (profileUrl.isNotEmpty)
             ListTile(
-              leading: const Icon(Icons.remove_circle_outline),
-              title: const Text('Remove current photo (local)'),
-              onTap: () async {
-                Navigator.pop(context);
-                setState(() => profileUrl = '');
-                final prefs = await SharedPreferences.getInstance();
-                await prefs.setString('profilepicture', '');
-              },
-            ),
+  leading: const Icon(Icons.remove_circle_outline),
+  title: const Text('Remove current photo'),
+  onTap: () async {
+    Navigator.pop(context);
+    await _deleteProfilePicture(); // ← calls backend & clears local
+  },
+),
+
         ]),
       ),
     );
@@ -334,6 +333,36 @@ class _ProfilePageState extends State<MerchantProfilePage> {
       if (mounted) setState(() => _loading = false);
     }
   }
+
+  Future<void> _deleteProfilePicture() async {
+  final token = await _getAuthToken();
+  if (token.isEmpty) {
+    if (!mounted) return;
+    ToastHelper.showCustomToast(context, 'Please log in first', isSuccess: false, errorMessage: '');
+    return;
+  }
+  try {
+    setState(() => _loading = true);
+    final base = await ApiConfig.readBase();
+    final resp = await http.delete(
+      Uri.parse('$base/users/me/profile-picture'),
+      headers: {'Authorization': 'Bearer $token', 'Accept': 'application/json'},
+    );
+    if (resp.statusCode >= 200 && resp.statusCode < 300) {
+      setState(() => profileUrl = '');
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('profilepicture', '');
+      ToastHelper.showCustomToast(context, 'Profile picture removed', isSuccess: true, errorMessage: '');
+    } else {
+      ToastHelper.showCustomToast(context, 'Failed to remove', isSuccess: false, errorMessage: resp.body);
+    }
+  } catch (e) {
+    ToastHelper.showCustomToast(context, 'Failed to remove', isSuccess: false, errorMessage: e.toString());
+  } finally {
+    if (mounted) setState(() => _loading = false);
+  }
+}
+
 
   Future<void> _logout() async {
     setState(() => _loading = true);
