@@ -373,126 +373,125 @@ class _MarketPageState extends State<MarketPage> {
     );
   }
 
-  Widget _buildMarketItem(MarketplaceDetailModel item) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(15),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.08),
-            blurRadius: 8,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        children: [
-          // Fixed aspect to prevent overflow jumpiness
-          ClipRRect(
+ Widget _buildMarketItem(MarketplaceDetailModel item) {
+  return Container(
+    clipBehavior: Clip.antiAlias,
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(15),
+      boxShadow: [
+        BoxShadow(
+          color: Colors.black.withOpacity(0.08),
+          blurRadius: 8,
+          offset: const Offset(0, 4),
+        ),
+      ],
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Let the photo grow to use any extra vertical space
+        Expanded(
+          child: ClipRRect(
             borderRadius: const BorderRadius.vertical(top: Radius.circular(15)),
-            child: AspectRatio(
-              aspectRatio: 16 / 9,
-              child: Image.network(
-                item.image,
-                fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => Container(
-                  color: Colors.grey[300],
-                  alignment: Alignment.center,
-                  child: const Icon(Icons.broken_image),
-                ),
-                loadingBuilder: (context, child, progress) {
-                  if (progress == null) return child;
-                  return Container(
-                    color: Colors.grey[200],
-                    alignment: Alignment.center,
-                    child: const CircularProgressIndicator(strokeWidth: 2),
-                  );
-                },
+            child: Image.network(
+              item.image,
+              fit: BoxFit.cover,           // fills; no letterboxing
+              width: double.infinity,
+              errorBuilder: (_, __, ___) => Container(
+                color: Colors.grey[300],
+                alignment: Alignment.center,
+                child: const Icon(Icons.broken_image),
               ),
+              loadingBuilder: (context, child, progress) {
+                if (progress == null) return child;
+                return Container(
+                  color: Colors.grey[200],
+                  alignment: Alignment.center,
+                  child: const CircularProgressIndicator(strokeWidth: 2),
+                );
+              },
             ),
           ),
+        ),
 
-          // Texts
-          Padding(
-            padding: const EdgeInsets.fromLTRB(10, 10, 10, 6),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  item.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  "MWK ${item.price}",
-                  style: const TextStyle(
-                    fontSize: 14, fontWeight: FontWeight.w600, color: Colors.green),
-                ),
-              ],
-            ),
+        // Texts
+        Padding(
+          padding: const EdgeInsets.fromLTRB(10, 10, 10, 6),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                item.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                "MWK ${item.price}",
+                style: const TextStyle(
+                  fontSize: 14, fontWeight: FontWeight.w600, color: Colors.green),
+              ),
+            ],
           ),
+        ),
 
-          const Spacer(),
-
-          // Buttons row
-          Padding(
-            padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
-            child: Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton(
-                    onPressed: () {
-                      // TODO: integrate with your CartService implementation
-                      // widget.cartService.add(item);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('${item.name} added to cart')),
-                      );
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 10),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
+        // Buttons row (fixed height; keeps layout consistent)
+        Padding(
+          padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+          child: Row(
+            children: [
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: () {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('${item.name} added to cart')),
+                    );
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
                     ),
-                    child: const Text("AddCart"),
                   ),
+                  child: const Text("AddCart"),
                 ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: ElevatedButton(
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => DetailsPage(
-                            itemId: item.id,
-                            cartService: widget.cartService,
-                          ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => DetailsPage(
+                          itemId: item.id,
+                          cartService: widget.cartService,
                         ),
-                      );
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.red,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 10),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
                       ),
+                    );
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.red,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
                     ),
-                    child: const Text("BuyNow"),
                   ),
+                  child: const Text("BuyNow"),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
-        ],
-      ),
-    );
-  }
+        ),
+      ],
+    ),
+  );
+}
+
 }

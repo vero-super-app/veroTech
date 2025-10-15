@@ -1,13 +1,32 @@
+// lib/services/marketplace.service.dart
 import 'dart:convert';
 import 'dart:io' show File;
+
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/marketplace.model.dart';
 import 'api_config.dart';
 
 class MarketplaceService {
+  // ---- auth helpers ----
+  Future<String> _token() async {
+    final prefs = await SharedPreferences.getInstance();
+    // adjust keys to whatever you save in prefs
+    return prefs.getString('jwt_token') ??
+           prefs.getString('token') ??
+           '';
+  }
+
+  Map<String, String> _authHeaders(String token, {Map<String, String>? extra}) {
+    return {
+      'Authorization': 'Bearer $token',
+      if (extra != null) ...extra,
+    };
+  }
+
   dynamic _decodeOrThrow(http.Response r, {String where = ''}) {
     if (r.statusCode < 200 || r.statusCode >= 300) {
       throw Exception('HTTP ${r.statusCode} at $where: ${r.body.isNotEmpty ? r.body : 'No body'}');
@@ -20,41 +39,55 @@ class MarketplaceService {
     }
   }
 
-  // CREATE -> POST {base}/marketplace
+  // ========= SECURED ENDPOINTS (owner enforced server-side) =========
+
+  /// CREATE -> POST {base}/marketplace  (requires Bearer token)
   Future<MarketplaceDetailModel> createItem(MarketplaceItem item) async {
     final base = await ApiConfig.readBase();
+    final token = await _token();
     final uri = Uri.parse('$base/marketplace');
+
     final r = await http.post(
       uri,
-      headers: {'Content-Type': 'application/json'},
+      headers: _authHeaders(token, extra: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      }),
       body: jsonEncode(item.toJson()),
     );
+
     final body = _decodeOrThrow(r, where: 'POST $uri');
     final data = (body is Map ? (body['data'] ?? body) : body) as Map<String, dynamic>;
     return MarketplaceDetailModel.fromJson(data);
   }
 
-  // DELETE -> DELETE {base}/marketplace/:id
+  /// DELETE -> DELETE {base}/marketplace/:id  (requires Bearer token; server checks ownership)
   Future<void> deleteItem(int id) async {
     final base = await ApiConfig.readBase();
+    final token = await _token();
     final uri = Uri.parse('$base/marketplace/$id');
-    final r = await http.delete(uri);
+
+    final r = await http.delete(uri, headers: _authHeaders(token));
     if (r.statusCode < 200 || r.statusCode >= 300) {
       throw Exception('Delete failed (${r.statusCode}) at $uri: ${r.body}');
     }
   }
 
-  // Upload -> POST {base}/uploads (multipart "file") => {url}
+  /// Upload -> POST {base}/uploads (multipart "file") => {url}  (requires Bearer token)
   Future<String> uploadImageFile(File imageFile, {String filename = 'upload.jpg'}) async {
     final base = await ApiConfig.readBase();
+    final token = await _token();
     final uri = Uri.parse('$base/uploads');
-    final req = http.MultipartRequest('POST', uri);
-    req.files.add(await http.MultipartFile.fromPath(
-      'file',
-      imageFile.path,
-      filename: filename,
-      contentType: MediaType('image', 'jpeg'),
-    ));
+
+    final req = http.MultipartRequest('POST', uri)
+      ..headers.addAll(_authHeaders(token))
+      ..files.add(await http.MultipartFile.fromPath(
+        'file',
+        imageFile.path,
+        filename: filename,
+        contentType: MediaType('image', 'jpeg'),
+      ));
+
     final streamed = await req.send();
     final resp = await http.Response.fromStream(streamed);
     final body = _decodeOrThrow(resp, where: 'POST $uri');
@@ -63,7 +96,30 @@ class MarketplaceService {
     return url;
   }
 
-  // === KEEP: Search by photo ===
+  /// ONLY MINE -> GET {base}/marketplace/me (requires Bearer token)
+  Future<List<MarketplaceDetailModel>> fetchMyItems() async {
+    try {
+      final base = await ApiConfig.readBase();
+      final token = await _token();
+      final url = Uri.parse('$base/marketplace/me');
+
+      final r = await http.get(url, headers: _authHeaders(token, extra: {'Accept': 'application/json'}));
+      final body = _decodeOrThrow(r, where: 'GET $url');
+
+      final list = body is Map ? body['data'] : null;
+      if (list is List) {
+        return list.map((e) => MarketplaceDetailModel.fromJson(e)).toList().cast<MarketplaceDetailModel>();
+      }
+      return [];
+    } catch (e) {
+      debugPrint('Error fetching my items: $e');
+      return [];
+    }
+  }
+
+  // ========= PUBLIC (optional storefront) =========
+
+  // Search by photo (public, keep as-is)
   Future<List<MarketplaceDetailModel>> searchByPhoto(File imageFile) async {
     try {
       final base = await ApiConfig.readBase();
@@ -88,7 +144,7 @@ class MarketplaceService {
     }
   }
 
-  // === KEEP: Search by name ===
+  // Search by name (public, keep as-is)
   Future<List<MarketplaceDetailModel>> searchByName(String name) async {
     try {
       final base = await ApiConfig.readBase();
@@ -107,7 +163,7 @@ class MarketplaceService {
     }
   }
 
-  // Optional read helpers
+  // Optional read helpers (public)
   Future<MarketplaceDetailModel?> getItemDetails(int itemId) async {
     try {
       final base = await ApiConfig.readBase();
@@ -140,3 +196,5 @@ class MarketplaceService {
     }
   }
 }
+
+

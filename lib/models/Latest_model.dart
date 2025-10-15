@@ -27,3 +27,36 @@ class LatestArrivalModels {
     );
   }
 }
+
+
+class LatestArrivalModel {
+  final int id;
+  final String image;
+  final String name;
+  final double price;
+  final DateTime? createdAt;
+
+  LatestArrivalModel({
+    required this.id,
+    required this.image,
+    required this.name,
+    required this.price,
+    this.createdAt,
+  });
+
+  factory LatestArrivalModel.fromJson(Map<String, dynamic> j) {
+    return LatestArrivalModel(
+      id: (j['id'] ?? 0) as int,
+      image: (j['image'] ?? '').toString(),
+      name: (j['name'] ?? '').toString(),
+      price: double.tryParse(j['price']?.toString() ?? '0') ?? 0,
+      createdAt: j['createdAt'] != null ? DateTime.tryParse(j['createdAt'].toString()) : null,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'image': image,
+    'name': name,
+    'price': price,
+  };
+}

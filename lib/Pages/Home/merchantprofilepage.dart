@@ -13,6 +13,8 @@ import 'package:image_picker/image_picker.dart';
 import 'package:mime/mime.dart';
 import 'package:http_parser/http_parser.dart';
 import 'package:vero360_app/Pages/PostMarketplace.dart';
+import 'package:vero360_app/Pages/PostlatestArrival.dart';
+import 'package:vero360_app/Pages/Postpromotion.dart';
 
 import 'package:vero360_app/services/api_config.dart';
 
@@ -701,10 +703,13 @@ Future<void> _persistUserToPrefs(Map<String, dynamic> data) async {
   Widget _otherDetailsGrid() {
     final items = <_DetailItem>[
       _DetailItem('Marketplace', Icons.shop, () { _openBottomSheet(const MarketplaceCrudPage()); }),
-      _DetailItem('promotions', Icons.rocket, () { _openBottomSheet(const ChangePasswordPage()); }),
-      _DetailItem('Latest arrival', Icons.shop_2, () {}),
-      _DetailItem('My Address', Icons.location_on, () { _openBottomSheet(const AddressPage()); }),
-      _DetailItem('Logout', Icons.logout, _logout),
+      _DetailItem('promotions', Icons.rocket, () { _openBottomSheet(const PromotionsCrudPage()); }),
+      _DetailItem('Latest arrival', Icons.shop_2, () { _openBottomSheet(const LatestArrivalsCrudPage()); }),
+     _DetailItem('My Shop', Icons.shopping_bag_rounded, () { _openBottomSheet(const ChangePasswordPage()); }),
+         _DetailItem('My Address', Icons.location_on, () { _openBottomSheet(const AddressPage()); }),
+       _DetailItem('My transactions', Icons.history, _logout),
+
+
     ];
 
     return Container(
