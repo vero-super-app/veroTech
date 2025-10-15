@@ -58,4 +58,6 @@ class ToastHelper {
       toastDuration: duration,
     );
   }
+
+  static void showToast(BuildContext context, String s) {}
 }

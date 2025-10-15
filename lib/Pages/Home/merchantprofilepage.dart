@@ -702,9 +702,16 @@ Future<void> _persistUserToPrefs(Map<String, dynamic> data) async {
 
   Widget _otherDetailsGrid() {
     final items = <_DetailItem>[
-      _DetailItem('Marketplace', Icons.shop, () { _openBottomSheet(const MarketplaceCrudPage()); }),
-      _DetailItem('promotions', Icons.rocket, () { _openBottomSheet(const PromotionsCrudPage()); }),
-      _DetailItem('Latest arrival', Icons.shop_2, () { _openBottomSheet(const LatestArrivalsCrudPage()); }),
+    _DetailItem('Marketplace', Icons.storefront, () {
+  _openBottomSheet(const MarketplaceCrudPage());
+}),
+_DetailItem('Promotions', Icons.local_offer, () {
+  _openBottomSheet(const PromotionsCrudPage());
+}),
+_DetailItem('Latest Arrivals', Icons.rocket_launch, () {
+  _openBottomSheet(const LatestArrivalsCrudPage());
+}),
+
      _DetailItem('My Shop', Icons.shopping_bag_rounded, () { _openBottomSheet(const ChangePasswordPage()); }),
          _DetailItem('My Address', Icons.location_on, () { _openBottomSheet(const AddressPage()); }),
        _DetailItem('My transactions', Icons.history, _logout),

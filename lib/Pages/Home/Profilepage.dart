@@ -832,9 +832,10 @@ class _DetailItem {
    Latest Arrivals (API-driven)
    ============================ */
 
+
+// ===== Latest Arrivals (unchanged) =====
 class LatestArrivalsSection extends StatefulWidget {
   const LatestArrivalsSection({super.key});
-
   @override
   State<LatestArrivalsSection> createState() => _LatestArrivalsSectionState();
 }
@@ -861,8 +862,7 @@ class _LatestArrivalsSectionState extends State<LatestArrivalsSection> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text("Latest Arrivals",
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          const Text("Latest Arrivals", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
           const SizedBox(height: 10),
           FutureBuilder<List<LatestArrivalModels>>(
             future: _future,
@@ -877,11 +877,7 @@ class _LatestArrivalsSectionState extends State<LatestArrivalsSection> {
                 return Padding(
                   padding: const EdgeInsets.symmetric(vertical: 24),
                   child: Center(
-                    child: Text(
-                      'Could not load arrivals.\n${snap.error}',
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(color: Colors.red),
-                    ),
+                    child: Text('Could not load arrivals.\n${snap.error}', textAlign: TextAlign.center, style: const TextStyle(color: Colors.red)),
                   ),
                 );
               }
@@ -896,10 +892,7 @@ class _LatestArrivalsSectionState extends State<LatestArrivalsSection> {
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
                 gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 2,
-                  crossAxisSpacing: 10,
-                  mainAxisSpacing: 10,
-                  childAspectRatio: 0.78,
+                  crossAxisCount: 2, crossAxisSpacing: 10, mainAxisSpacing: 10, childAspectRatio: 0.78,
                 ),
                 itemCount: items.length,
                 itemBuilder: (_, i) {
@@ -942,10 +935,8 @@ class _ProductCardFromApi extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Use network image (falls back to placeholder on error)
           ClipRRect(
-            borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(16), topRight: Radius.circular(16)),
+            borderRadius: const BorderRadius.only(topLeft: Radius.circular(16), topRight: Radius.circular(16)),
             child: imageUrl.isNotEmpty
                 ? Image.network(
                     imageUrl,
@@ -953,19 +944,13 @@ class _ProductCardFromApi extends StatelessWidget {
                     width: double.infinity,
                     fit: BoxFit.cover,
                     errorBuilder: (_, __, ___) => Container(
-                      height: 140,
-                      color: const Color(0xFFEDEDED),
-                      child: const Center(
-                        child: Icon(Icons.image_not_supported_rounded),
-                      ),
+                      height: 140, color: const Color(0xFFEDEDED),
+                      child: const Center(child: Icon(Icons.image_not_supported_rounded)),
                     ),
                   )
                 : Container(
-                    height: 140,
-                    color: const Color(0xFFEDEDED),
-                    child: const Center(
-                      child: Icon(Icons.image_not_supported_rounded),
-                    ),
+                    height: 140, color: const Color(0xFFEDEDED),
+                    child: const Center(child: Icon(Icons.image_not_supported_rounded)),
                   ),
           ),
           Padding(
@@ -973,24 +958,11 @@ class _ProductCardFromApi extends StatelessWidget {
             child: Row(
               children: [
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                              fontSize: 15, fontWeight: FontWeight.w800)),
-                      const SizedBox(height: 4),
-                      Text(
-                        priceText,
-                        style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.green),
-                      ),
-                    ],
-                  ),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800)),
+                    const SizedBox(height: 4),
+                    Text(priceText, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Colors.green)),
+                  ]),
                 ),
                 IconButton(
                   onPressed: () => _showCardOptions(context, name),
@@ -1007,34 +979,25 @@ class _ProductCardFromApi extends StatelessWidget {
   void _showCardOptions(BuildContext context, String name) {
     showModalBottomSheet(
       context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (_) => Padding(
         padding: const EdgeInsets.all(16),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
-          const Text('Choose an action',
-              style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+          const Text('Choose an action', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
           const SizedBox(height: 12),
           ListTile(
             leading: const Icon(Icons.shopping_cart, color: Colors.green),
             title: const Text('Add to cart'),
             onTap: () {
               Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('$name added to cart')),
-              );
-              // TODO: hook into your cart provider/state here
+              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$name added to cart')));
             },
           ),
           const Divider(height: 0),
           ListTile(
             leading: Icon(Icons.info_outline_rounded, color: brandOrange),
             title: const Text('More details'),
-            onTap: () {
-              Navigator.pop(context);
-              // TODO: navigate to product details page
-            },
+            onTap: () { Navigator.pop(context); },
           ),
         ]),
       ),
