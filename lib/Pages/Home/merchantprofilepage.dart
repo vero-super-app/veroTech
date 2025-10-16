@@ -15,6 +15,7 @@ import 'package:http_parser/http_parser.dart';
 import 'package:vero360_app/Pages/PostMarketplace.dart';
 import 'package:vero360_app/Pages/PostlatestArrival.dart';
 import 'package:vero360_app/Pages/Postpromotion.dart';
+import 'package:vero360_app/Pages/myshop.dart';
 
 import 'package:vero360_app/services/api_config.dart';
 
@@ -712,7 +713,7 @@ _DetailItem('Latest Arrivals', Icons.rocket_launch, () {
   _openBottomSheet(const LatestArrivalsCrudPage());
 }),
 
-     _DetailItem('My Shop', Icons.shopping_bag_rounded, () { _openBottomSheet(const ChangePasswordPage()); }),
+     _DetailItem('My Shop', Icons.shopping_bag_rounded, () { _openBottomSheet(const ServiceProviderCrudPage()); }),
          _DetailItem('My Address', Icons.location_on, () { _openBottomSheet(const AddressPage()); }),
        _DetailItem('My transactions', Icons.history, _logout),
 
