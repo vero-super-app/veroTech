@@ -3,6 +3,7 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:vero360_app/Pages/checkout_from_cart_page.dart';
 
 import 'package:vero360_app/models/cart_model.dart';
 import 'package:vero360_app/services/cart_services.dart';
@@ -181,24 +182,40 @@ class _CartPageState extends State<CartPage> {
     }
   }
 
-  Future<void> _proceedToCheckout() async {
-    if (!await _hasToken()) {
-      ToastHelper.showCustomToast(
-        context,
-        'Please log in to checkout.',
-        isSuccess: false,
-        errorMessage: 'Not logged in',
-      );
-      return;
-    }
-    // TODO: Navigate to your real CheckoutPage
+Future<void> _proceedToCheckout() async {
+  if (!await _hasToken()) {
     ToastHelper.showCustomToast(
       context,
-      'Checkout flow coming soon…',
-      isSuccess: true,
-      errorMessage: 'OK',
+      'Please log in to checkout.',
+      isSuccess: false,
+      errorMessage: 'Not logged in',
     );
+    return;
   }
+  if (_items.isEmpty) {
+    ToastHelper.showCustomToast(
+      context,
+      'Your cart is empty.',
+      isSuccess: false,
+      errorMessage: 'Empty cart',
+    );
+    return;
+  }
+
+  // Pass a copy so the checkout page can mutate locally if it needs to
+  final itemsForCheckout = List<CartModel>.from(_items);
+
+  await Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (_) => CheckoutFromCartPage(items: itemsForCheckout),
+    ),
+  );
+
+  // After returning from checkout, refresh in case the cart changed
+  if (mounted) _refresh();
+}
+
 
   @override
   Widget build(BuildContext context) {
