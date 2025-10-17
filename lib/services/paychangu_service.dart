@@ -1,99 +1,114 @@
 import 'dart:convert';
-import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:uuid/uuid.dart';
 
-// function to initiate the payment request to the payChangu Api
-Future<void> initiatePayment({
-  required String apiKey,
-  required String phoneNumber,
-  required double amount,
-  required String currency,
-  required String provider, // AirtelMoney, Mpamba
-}) async {
+import 'package:vero360_app/services/api_config.dart';
 
-  // setting up api end point where the payment request is sent
-  const String url = "https://api.paychangu.com/v1/create-payment";
+/// Response your backend might return after creating a payment.
+/// Supports either `payment_url` or `checkout_url`.
+class PaymentCreateResponse {
+  final String? checkoutUrl;     // open in WebView if present
+  final String? transactionId;   // backend/paychangu transaction id (optional)
+  final String? txRef;           // your tx_ref (optional)
+  final String? status;          // e.g., "PENDING", "INITIATED" (optional)
+  final String? message;         // optional backend message
 
-  // sending the HTTP request
+  PaymentCreateResponse({
+    this.checkoutUrl,
+    this.transactionId,
+    this.txRef,
+    this.status,
+    this.message,
+  });
 
-  final response = await http.post(
-    Uri.parse(url),
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer $apiKey',
-    },
-    //encodes parameters as JSON
-    body: jsonEncode({
-      "amount": amount,
-      "currency": currency, // e.g., MWK
-      "phone_number": phoneNumber,
-      "provider": provider, // e.g., AirtelMoney
-      "description": "Payment for order #12345",
-    }),
-  );
-// handling api response
-// check if request is successful
-  if (response.statusCode == 200) {
-    final data = jsonDecode(response.body);
-    final transactionId = data['transaction_id'];
-    final paymentUrl = data['payment_url']; // Assuming the response includes a payment URL
-
-    print('Payment initiated successfully, transaction ID: $transactionId');
-
-    // Check if payment URL is available
-    if (paymentUrl != null) {
-      // Navigate to the payment page (WebView)
-      print('Redirecting to payment URL: $paymentUrl');
-      // Use a WebView to load the payment URL
-      // You can implement the WebView here or pass the URL to the page where it's implemented.
-    } else {
-      print('No payment URL provided. Please check your API response.');
-    }
-  } else {
-    print('Failed to initiate payment: ${response.body}');
+  factory PaymentCreateResponse.fromJson(Map<String, dynamic> json) {
+    return PaymentCreateResponse(
+      checkoutUrl: (json['payment_url'] ?? json['checkout_url'])?.toString(),
+      transactionId: json['transaction_id']?.toString(),
+      txRef: json['tx_ref']?.toString(),
+      status: json['status']?.toString(),
+      message: json['message']?.toString(),
+    );
   }
 }
 
-class CheckoutPage extends StatelessWidget {
-  final TextEditingController phoneController = TextEditingController();
-  final double totalAmount = 500.0; // Example amount
+class PaymentsService {
+  PaymentsService._();
 
-  CheckoutPage({super.key});
+  /// Strict rules:
+  /// - Exactly 10 digits
+  /// - Airtel Money starts with 09
+  /// - TNM Mpamba starts with 08
+  static bool validateAirtel(String phone) => RegExp(r'^09\d{8}$').hasMatch(phone);
+  static bool validateMpamba(String phone) => RegExp(r'^08\d{8}$').hasMatch(phone);
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text("Checkout")),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            TextField(
-              controller: phoneController,
-              decoration: const InputDecoration(
-                labelText: "Phone Number",
-                hintText: "Enter your phone number",
-                border: OutlineInputBorder(),
-              ),
-              keyboardType: TextInputType.phone,
-            ),
-            const SizedBox(height: 20),
-            ElevatedButton(
-              onPressed: () async {
-                // Initiate payment when the button is pressed
-                await initiatePayment(
-                  apiKey: 'PUB-TEST-uvvnO504OZQbxOw8jwpUggL63mkSPNsM',
-                  phoneNumber: phoneController.text,
-                  amount: totalAmount,
-                  currency: 'MWK',
-                  provider: 'AirtelMoney', // Or 'Mpamba'
-                );
-              },
-              child: const Text('Pay Now'),
-            ),
-          ],
-        ),
-      ),
-    );
+  static Future<String?> _readToken() async {
+    final sp = await SharedPreferences.getInstance();
+    return sp.getString('jwt') ?? sp.getString('token');
+  }
+
+  /// Call your backend: POST /payments/pay
+  ///
+  /// Backend expects (from your cURL):
+  /// { amount, currency, tx_ref, phone_number, relatedType, relatedId(UUID), description }
+  ///
+  /// - `amount` is sent as a STRING (to match your example)
+  /// - If you pass [phoneNumber] null, it's omitted (useful for Card flow if your backend allows it).
+  /// - Optional `provider` and `meta` are attached if provided (backend can ignore safely).
+  /// - If `relatedId` is null, a UUID is generated, so your DTO validation passes.
+  static Future<PaymentCreateResponse> pay({
+    required double amount,
+    required String currency,          // "MWK"
+    String? phoneNumber,               // optional (card might not need)
+    required String relatedType,       // e.g. "ORDER" | "BOOKING"
+    String? relatedId,                 // UUID; generated if null
+    String? description,
+    String? txRef,                     // autogenerated if null
+    String? provider,                  // 'AirtelMoney' | 'Mpamba' (optional)
+    Map<String, dynamic>? meta,        // optional metadata
+  }) async {
+    final base = await ApiConfig.readBase();
+    final uri = Uri.parse('$base/payments/pay');
+
+    final token = await _readToken();
+    final headers = <String, String>{
+      'Content-Type': 'application/json',
+      if (token != null) 'Authorization': 'Bearer $token',
+      'Accept': 'application/json',
+    };
+
+    // UUID for your DTO
+    final uuid = relatedId ?? const Uuid().v4();
+    final ref = txRef ?? 'vero_${DateTime.now().millisecondsSinceEpoch}';
+
+    final body = <String, dynamic>{
+      'amount': amount.toStringAsFixed(0),
+      'currency': currency,
+      'tx_ref': ref,
+      'relatedType': relatedType,
+      'relatedId': uuid,
+      'description': description ?? 'Marketplace payment',
+      if (phoneNumber != null && phoneNumber.isNotEmpty) 'phone_number': phoneNumber,
+      if (provider != null && provider.isNotEmpty) 'provider': provider,
+      if (meta != null) 'meta': meta,
+    };
+
+    final res = await http.post(uri, headers: headers, body: jsonEncode(body));
+
+    if (res.statusCode >= 200 && res.statusCode < 300) {
+      final decoded = jsonDecode(res.body);
+      if (decoded is Map<String, dynamic>) {
+        // Direct object
+        return PaymentCreateResponse.fromJson(decoded);
+      } else if (decoded is Map && decoded['data'] is Map<String, dynamic>) {
+        // Wrapped: { success, data }
+        return PaymentCreateResponse.fromJson(decoded['data'] as Map<String, dynamic>);
+      }
+      return PaymentCreateResponse(message: 'OK, but unexpected payload');
+    }
+
+    // Propagate backend validation error (e.g., "relatedId must be a UUID")
+    throw Exception('Pay failed: ${res.statusCode} ${res.body}');
   }
 }

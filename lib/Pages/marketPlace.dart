@@ -1,13 +1,17 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:vero360_app/models/cart_model.dart';
 import 'package:vero360_app/models/marketplace.model.dart';
 import 'package:vero360_app/services/cart_services.dart';
 import 'package:vero360_app/services/marketplace.service.dart';
+import 'package:vero360_app/toasthelper.dart';
 
 import '../Pages/Home/view_detailsPage.dart';
 
@@ -28,7 +32,7 @@ class _MarketPageState extends State<MarketPage> {
   Timer? _debounce;
   String _lastQuery = '';
   bool _loading = false;
-  bool _photoMode = false; // true when results come from photo search
+  bool _photoMode = false;
 
   late Future<List<MarketplaceDetailModel>> _future;
 
@@ -76,6 +80,7 @@ class _MarketPageState extends State<MarketPage> {
     }
   }
 
+  /// ✅ Missing before: search by photo (mobile only)
   Future<List<MarketplaceDetailModel>> _searchByPhoto(File file) async {
     setState(() {
       _loading = true;
@@ -88,6 +93,74 @@ class _MarketPageState extends State<MarketPage> {
       if (mounted) setState(() => _loading = false);
     }
   }
+
+
+// ...
+
+Future<String?> _readAuthToken() async {
+  final sp = await SharedPreferences.getInstance();
+  for (final k in const ['token', 'jwt_token', 'jwt']) {
+    final v = sp.getString(k);
+    if (v != null && v.isNotEmpty) return v;
+  }
+  return null;
+}
+
+Future<bool> _isLoggedIn() async => (await _readAuthToken()) != null;
+
+// ---------- Cart ----------
+Future<void> _addToCart(MarketplaceDetailModel item, {String? note}) async {
+  // quick visual feedback
+ 
+  try {
+    final sp = await SharedPreferences.getInstance();
+    final token = sp.getString('token') ?? sp.getString('jwt_token') ?? sp.getString('jwt');
+    if (token == null || token.isEmpty) {
+      ToastHelper.showCustomToast(
+        context,
+        'Please log in to add items to cart.',
+        isSuccess: false,
+        errorMessage: 'Not logged in',
+      );
+      return;
+    }
+
+    final cartItem = CartModel(
+      userId: '0', // ignored by backend; not sent
+      item: item.id,
+      quantity: 1,
+      name: item.name,
+      image: item.image,
+      price: item.price,
+      description: item.description,
+      comment: note ?? '',
+    );
+
+    await widget.cartService.addToCart(cartItem);
+
+    ToastHelper.showCustomToast(
+      context,
+      '${item.name} added to cart!',
+      isSuccess: true,
+      errorMessage: 'OK',
+    );
+  } on TimeoutException {
+    ToastHelper.showCustomToast(
+      context,
+      'Server is taking too long. Please try again.',
+      isSuccess: false,
+      errorMessage: 'Timeout',
+    );
+  } catch (e) {
+    ToastHelper.showCustomToast(
+      context,
+      'Failed to add item: $e',
+      isSuccess: false,
+      errorMessage: 'Add to cart failed',
+    );
+  }
+}
+
 
   // ---------- Search handlers ----------
   void _onSearchChanged() {
@@ -107,14 +180,13 @@ class _MarketPageState extends State<MarketPage> {
 
   Future<void> _showPhotoPickerSheet() async {
     if (kIsWeb) {
-      // On web, camera is limited; pick from gallery
       final XFile? picked = await _picker.pickImage(
         source: ImageSource.gallery,
         imageQuality: 85,
         maxWidth: 1280,
       );
       if (picked == null) return;
-      // NOTE: File is not web-safe; this feature is aimed at mobile.
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Photo search is best on mobile builds.')),
       );
@@ -187,13 +259,6 @@ class _MarketPageState extends State<MarketPage> {
           "Market Place",
           style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
         ),
-        actions: [
-          IconButton(
-            onPressed: _showPhotoPickerSheet,
-            icon: const Icon(Icons.camera_alt, color: Colors.black),
-            tooltip: 'Search by Photo',
-          ),
-        ],
         backgroundColor: Colors.white,
         elevation: 2,
       ),
@@ -239,15 +304,21 @@ class _MarketPageState extends State<MarketPage> {
             ),
           ),
 
-          // Optional categories (static placeholders)
+          // Optional categories
           SizedBox(
             height: 40,
             child: ListView(
               scrollDirection: Axis.horizontal,
               children: [
-                _buildCategoryTab("All Products", isSelected: !_photoMode && _searchCtrl.text.isEmpty),
+                _buildCategoryTab(
+                  "All Products",
+                  isSelected: !_photoMode && _searchCtrl.text.isEmpty,
+                ),
                 _buildCategoryTab("Food"),
                 _buildCategoryTab("Drinks"),
+                _buildCategoryTab("Electronics"),
+                _buildCategoryTab("Clothes"),
+                _buildCategoryTab("Shoes"),
               ],
             ),
           ),
@@ -270,12 +341,11 @@ class _MarketPageState extends State<MarketPage> {
               child: FutureBuilder<List<MarketplaceDetailModel>>(
                 future: _future,
                 builder: (context, snapshot) {
-                  // Loading
-                  if (_loading && snapshot.connectionState == ConnectionState.waiting) {
+                  if (_loading &&
+                      snapshot.connectionState == ConnectionState.waiting) {
                     return const Center(child: CircularProgressIndicator());
                   }
 
-                  // Error
                   if (snapshot.hasError) {
                     return ListView(
                       physics: const AlwaysScrollableScrollPhysics(),
@@ -315,7 +385,6 @@ class _MarketPageState extends State<MarketPage> {
                       builder: (context, constraints) {
                         final isWide = constraints.maxWidth >= 700;
                         final crossAxisCount = isWide ? 3 : 2;
-                        // Tune this to avoid pixel overflow; slightly < 0.7 gives room for buttons.
                         final childAspectRatio = isWide ? 0.70 : 0.68;
 
                         return GridView.builder(
@@ -334,7 +403,7 @@ class _MarketPageState extends State<MarketPage> {
                                   context,
                                   MaterialPageRoute(
                                     builder: (_) => DetailsPage(
-                                      itemId: item.id,
+                                      item: item,
                                       cartService: widget.cartService,
                                     ),
                                   ),
@@ -373,125 +442,120 @@ class _MarketPageState extends State<MarketPage> {
     );
   }
 
- Widget _buildMarketItem(MarketplaceDetailModel item) {
-  return Container(
-    clipBehavior: Clip.antiAlias,
-    decoration: BoxDecoration(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(15),
-      boxShadow: [
-        BoxShadow(
-          color: Colors.black.withOpacity(0.08),
-          blurRadius: 8,
-          offset: const Offset(0, 4),
-        ),
-      ],
-    ),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        // Let the photo grow to use any extra vertical space
-        Expanded(
-          child: ClipRRect(
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(15)),
-            child: Image.network(
-              item.image,
-              fit: BoxFit.cover,           // fills; no letterboxing
-              width: double.infinity,
-              errorBuilder: (_, __, ___) => Container(
-                color: Colors.grey[300],
-                alignment: Alignment.center,
-                child: const Icon(Icons.broken_image),
-              ),
-              loadingBuilder: (context, child, progress) {
-                if (progress == null) return child;
-                return Container(
-                  color: Colors.grey[200],
+  Widget _buildMarketItem(MarketplaceDetailModel item) {
+    return Container(
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(15),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.08),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Photo
+          Expanded(
+            child: ClipRRect(
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(15)),
+              child: Image.network(
+                item.image,
+                fit: BoxFit.cover,
+                width: double.infinity,
+                errorBuilder: (_, __, ___) => Container(
+                  color: Colors.grey[300],
                   alignment: Alignment.center,
-                  child: const CircularProgressIndicator(strokeWidth: 2),
-                );
-              },
+                  child: const Icon(Icons.broken_image),
+                ),
+                loadingBuilder: (context, child, progress) {
+                  if (progress == null) return child;
+                  return Container(
+                    color: Colors.grey[200],
+                    alignment: Alignment.center,
+                    child: const CircularProgressIndicator(strokeWidth: 2),
+                  );
+                },
+              ),
             ),
           ),
-        ),
 
-        // Texts
-        Padding(
-          padding: const EdgeInsets.fromLTRB(10, 10, 10, 6),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                item.name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                "MWK ${item.price}",
-                style: const TextStyle(
-                  fontSize: 14, fontWeight: FontWeight.w600, color: Colors.green),
-              ),
-            ],
-          ),
-        ),
-
-        // Buttons row (fixed height; keeps layout consistent)
-        Padding(
-          padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
-          child: Row(
-            children: [
-              Expanded(
-                child: ElevatedButton(
-                  onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('${item.name} added to cart')),
-                    );
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 10),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                  ),
-                  child: const Text("AddCart"),
+          // Texts
+          Padding(
+            padding: const EdgeInsets.fromLTRB(10, 10, 10, 6),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  item.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black),
                 ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: ElevatedButton(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => DetailsPage(
-                          itemId: item.id,
-                          cartService: widget.cartService,
-                        ),
+                const SizedBox(height: 4),
+                Text(
+                  "MWK ${item.price}",
+                  style: const TextStyle(
+                    fontSize: 14, fontWeight: FontWeight.w600, color: Colors.green),
+                ),
+              ],
+            ),
+          ),
+
+          // Buttons
+          Padding(
+            padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+            child: Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: () => _addToCart(item),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
                       ),
-                    );
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.red,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 10),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
                     ),
+                    child: const Text("AddCart"),
                   ),
-                  child: const Text("BuyNow"),
                 ),
-              ),
-            ],
+                const SizedBox(width: 10),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => DetailsPage(
+                            item: item,
+                            cartService: widget.cartService,
+                          ),
+                        ),
+                      );
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    child: const Text("BuyNow"),
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
-      ],
-    ),
-  );
-}
-
+        ],
+      ),
+    );
+  }
 }

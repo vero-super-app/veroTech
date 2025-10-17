@@ -268,7 +268,7 @@ class _MyAppState extends State<MyApp> {
         '/signup': (context) => const RegisterScreen(),
         '/login': (context) => const LoginScreen(),
         '/cartpage': (context) =>
-            _authGuard(context, CartPage(cartService: CartService('https://vero-backend.onrender.com'))),
+            _authGuard(context, CartPage(cartService: CartService('https://vero-backend.onrender.com', apiPrefix: ''))),
       },
     );
   }

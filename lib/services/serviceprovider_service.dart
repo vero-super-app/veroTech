@@ -44,6 +44,21 @@ class ServiceProviderServicess {
     throw Exception('fetchMine failed: ${res.statusCode} ${res.body}');
   }
 
+  static Future<ServiceProvider?> fetchByNumber(String spNumber) async {
+  final uri = await _u('/serviceprovider/search/$spNumber');
+  final res = await http.get(uri, headers: {'Accept': 'application/json'});
+  if (res.statusCode == 200) {
+    final body = jsonDecode(res.body);
+    // If not found your backend returns a string message; guard for that.
+    if (body is Map<String, dynamic> && body['id'] != null) {
+      return ServiceProvider.fromJson(body);
+    }
+    return null;
+  }
+  throw Exception('fetchByNumber failed: ${res.statusCode} ${res.body}');
+}
+
+
   static Future<ServiceProvider> create({
     required String businessName,
     String? businessDescription,

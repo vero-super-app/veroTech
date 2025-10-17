@@ -1,41 +1,47 @@
+// lib/models/serviceprovider_model.dart
+import 'package:vero360_app/services/api_config.dart';
+
 class ServiceProvider {
-  final int id;
-  final String serviceProviderId; // e.g., "vero12345"
+  final int? id;
+  final String serviceProviderId;
   final String businessName;
-  final String businessDescription;
-  final String status;
-  final String openingHours;
-  final String? logoUrl; // server returns a public path/url after upload
-  final bool isVerified;
-  final double rating;
+  final String? businessDescription;
+  final String? status;
+  final String? openingHours;
+  final String? logoUrl;
+  final bool? isVerified;
+  final double? rating;
 
   ServiceProvider({
-    required this.id,
+    this.id,
     required this.serviceProviderId,
     required this.businessName,
-    required this.businessDescription,
-    required this.status,
-    required this.openingHours,
-    required this.logoUrl,
-    required this.isVerified,
-    required this.rating,
+    this.businessDescription,
+    this.status,
+    this.openingHours,
+    this.logoUrl,
+    this.isVerified,
+    this.rating,
   });
 
   factory ServiceProvider.fromJson(Map<String, dynamic> json) {
-    final rawId = json['id'] ?? json['_id'] ?? 0;
-    final rawRating = json['rating'];
+    double? _d(v) => v == null ? null : (v is num ? v.toDouble() : double.tryParse('$v'));
+    String? _logo(Map<String, dynamic> m) {
+      final raw = (m['logoUrl'] ?? m['logourl'] ?? m['logoimage'])?.toString().trim();
+      if (raw == null || raw.isEmpty) return null;
+      return raw.startsWith('http') ? raw : '${ApiConfig.prod}$raw';
+    }
 
     return ServiceProvider(
-      id: rawId is int ? rawId : int.tryParse(rawId.toString()) ?? 0,
+      id: json['id'] is int ? json['id'] as int : int.tryParse('${json['id']}'),
       serviceProviderId: (json['serviceProviderId'] ?? json['ServiceProviderID'] ?? '').toString(),
       businessName: (json['businessName'] ?? '').toString(),
-      businessDescription: (json['businessDescription'] ?? '').toString(),
-      status: (json['status'] ?? '').toString(),
-      openingHours: (json['openingHours'] ?? json['openinghours'] ?? '').toString(),
-      // server may still send 'logoimage' – normalize here
-      logoUrl: (json['logoUrl'] ?? json['logoimage'] ?? json['logo'] ?? json['logoImage'])?.toString(),
-      isVerified: json['isVerified'] == true || json['isverified'] == true || json['isVerified'] == 'true',
-      rating: rawRating is num ? rawRating.toDouble() : double.tryParse((rawRating ?? '0').toString()) ?? 0.0,
+      businessDescription: json['businessDescription']?.toString(),
+      status: json['status']?.toString(),
+      openingHours: json['openingHours']?.toString(),
+      logoUrl: _logo(json),
+      isVerified: json['isVerified'] as bool?,
+      rating: _d(json['rating']),
     );
   }
 }

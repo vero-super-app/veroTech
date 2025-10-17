@@ -4,12 +4,12 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../services/cart_services.dart';
-import '../models/cart_model.dart';
+import 'package:vero360_app/models/cart_model.dart';
+import 'package:vero360_app/services/cart_services.dart';
+import 'package:vero360_app/toasthelper.dart';
 
 class CartPage extends StatefulWidget {
   final CartService cartService;
-
   const CartPage({required this.cartService, Key? key}) : super(key: key);
 
   @override
@@ -18,10 +18,9 @@ class CartPage extends StatefulWidget {
 
 class _CartPageState extends State<CartPage> {
   late Future<List<CartModel>> _cartFuture;
-  List<CartModel> _items = [];
+  final List<CartModel> _items = [];
   String? _error;
   bool _loading = false;
-  String? _userId; // cached so we always pass it
 
   @override
   void initState() {
@@ -29,30 +28,47 @@ class _CartPageState extends State<CartPage> {
     _cartFuture = _fetch();
   }
 
-  Future<String?> _tryGetUserId() async {
-    // Prefer value saved by your login flow
-    final prefs = await SharedPreferences.getInstance();
-    final uid = prefs.getString('user_id');
-    return uid; // if null, CartService will decode from JWT
+  Future<bool> _hasToken() async {
+    final sp = await SharedPreferences.getInstance();
+    final t = sp.getString('token') ?? sp.getString('jwt_token') ?? sp.getString('jwt');
+    return t != null && t.isNotEmpty;
   }
 
   Future<List<CartModel>> _fetch() async {
-  setState(() { _loading = true; _error = null; });
-  try {
-    await widget.cartService.warmup();                 // ⬅️ NEW
-    _userId ??= await _tryGetUserId();
-    final data = await widget.cartService.fetchCartItems(userId: _userId);
-    _items = List<CartModel>.from(data);
-    return _items;
-  } catch (e) {
-    _error = e.toString();
-    rethrow;
-  } finally {
-    if (mounted) setState(() => _loading = false);
+    setState(() { _loading = true; _error = null; });
+    try {
+      if (!await _hasToken()) {
+        _items.clear();
+        ToastHelper.showCustomToast(
+          context,
+          'Please log in to view your cart.',
+          isSuccess: false,
+          errorMessage: 'Not logged in',
+        );
+        return _items;
+      }
+
+      final data = await widget.cartService.fetchCartItems();
+      _items..clear()..addAll(data);
+      return _items;
+    } catch (e) {
+      final msg = e.toString();
+      if (msg.contains('404') || msg.toLowerCase().contains('no items in cart')) {
+        _items.clear();
+        return _items;
+      }
+      _error = msg;
+      ToastHelper.showCustomToast(
+        context,
+        'Error loading cart',
+        isSuccess: false,
+        errorMessage: msg,
+      );
+      rethrow;
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
   }
-}
-
-
 
   Future<void> _refresh() async {
     setState(() => _cartFuture = _fetch());
@@ -71,19 +87,26 @@ class _CartPageState extends State<CartPage> {
     setState(() => _items.removeAt(idx));
 
     try {
-      await widget.cartService.removeFromCart(item.item, userId: _userId);
+      await widget.cartService.removeFromCart(item.item);
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Removed ${item.name}')));
+        ToastHelper.showCustomToast(
+          context,
+          'Removed ${item.name}',
+          isSuccess: true,
+          errorMessage: 'OK',
+        );
       }
     } catch (e) {
       setState(() => _items.insert(idx, backup));
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Failed to remove: $e')));
+        ToastHelper.showCustomToast(
+          context,
+          'Failed to remove item',
+          isSuccess: false,
+          errorMessage: e.toString(),
+        );
       }
     }
-    setState(() {});
   }
 
   Future<void> _changeQty(CartModel item, int newQty) async {
@@ -97,30 +120,35 @@ class _CartPageState extends State<CartPage> {
     setState(() => _items[idx] = backup.copyWith(quantity: newQty));
 
     try {
-      final model = CartModel(
-        userId: _userId ?? backup.userId,
-        item: item.item,
-        quantity: newQty,
-        name: item.name,
-        image: item.image,
-        price: item.price,
-        description: item.description,
-        comment: item.comment,
+      // Server upserts on POST /cart
+      await widget.cartService.addToCart(
+        CartModel(
+          userId: backup.userId,
+          item: item.item,
+          quantity: newQty,
+          name: item.name,
+          image: item.image,
+          price: item.price,
+          description: item.description,
+          comment: item.comment,
+        ),
       );
-      await widget.cartService.addToCart(model);
     } catch (e) {
       setState(() => _items[idx] = backup);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to update quantity: $e')),
+        ToastHelper.showCustomToast(
+          context,
+          'Failed to update quantity',
+          isSuccess: false,
+          errorMessage: e.toString(),
         );
       }
     }
-    setState(() {});
   }
 
   Future<void> _clearCart() async {
     if (_items.isEmpty) return;
+
     final confirm = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
@@ -135,21 +163,40 @@ class _CartPageState extends State<CartPage> {
     if (confirm != true) return;
 
     try {
-      await widget.cartService.clearCart(userId: _userId);
+      await widget.cartService.clearCart();
       setState(() => _items.clear());
+      ToastHelper.showCustomToast(
+        context,
+        'Cart cleared',
+        isSuccess: true,
+        errorMessage: 'OK',
+      );
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to clear: $e')),
-        );
-      }
+      ToastHelper.showCustomToast(
+        context,
+        'Failed to clear cart',
+        isSuccess: false,
+        errorMessage: e.toString(),
+      );
     }
   }
 
   Future<void> _proceedToCheckout() async {
-    // TODO: integrate payment flow
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Checkout flow coming soon…')),
+    if (!await _hasToken()) {
+      ToastHelper.showCustomToast(
+        context,
+        'Please log in to checkout.',
+        isSuccess: false,
+        errorMessage: 'Not logged in',
+      );
+      return;
+    }
+    // TODO: Navigate to your real CheckoutPage
+    ToastHelper.showCustomToast(
+      context,
+      'Checkout flow coming soon…',
+      isSuccess: true,
+      errorMessage: 'OK',
     );
   }
 
@@ -208,7 +255,12 @@ class _CartPageState extends State<CartPage> {
                 physics: const AlwaysScrollableScrollPhysics(),
                 children: const [
                   SizedBox(height: 120),
-                  Center(child: Text('Your cart is empty')),
+                  Center(
+                    child: Text(
+                      'Your cart is empty',
+                      style: TextStyle(color: Colors.red),
+                    ),
+                  ),
                 ],
               );
             }
@@ -244,8 +296,6 @@ class _CartPageState extends State<CartPage> {
   }
 }
 
-/// ===== Widgets ===============================================================
-
 class _CartItemTile extends StatelessWidget {
   const _CartItemTile({
     required this.item,
@@ -274,7 +324,7 @@ class _CartItemTile extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          // Image
+          // image
           ClipRRect(
             borderRadius: BorderRadius.circular(10),
             child: SizedBox(
@@ -297,7 +347,7 @@ class _CartItemTile extends StatelessWidget {
           ),
           const SizedBox(width: 12),
 
-          // Details
+          // details
           Expanded(
             child: ConstrainedBox(
               constraints: const BoxConstraints(minHeight: 80),
@@ -317,7 +367,7 @@ class _CartItemTile extends StatelessWidget {
                   ),
                   const SizedBox(height: 8),
 
-                  // Qty controls
+                  // qty controls
                   Row(
                     children: [
                       _IconBtn(icon: Icons.remove, onTap: onDec),
@@ -344,7 +394,6 @@ class _CartItemTile extends StatelessWidget {
   }
 }
 
-
 class _IconBtn extends StatelessWidget {
   const _IconBtn({required this.icon, required this.onTap});
   final IconData icon;
@@ -358,9 +407,9 @@ class _IconBtn extends StatelessWidget {
       child: InkWell(
         borderRadius: BorderRadius.circular(8),
         onTap: onTap,
-        child: const Padding(
-          padding: EdgeInsets.all(6),
-          child: Icon(Icons.remove, size: 18), // icon filled by parent call
+        child: Padding(
+          padding: const EdgeInsets.all(6),
+          child: Icon(icon, size: 18),
         ),
       ),
     );
@@ -400,7 +449,6 @@ class _CartSummary extends StatelessWidget {
           children: [
             _row('Subtotal', _mwk(subtotal)),
             _row('Delivery Fee', _mwk(deliveryFee)),
-            if (discount != 0) _row('Discount', _mwk(discount)),
             const Divider(height: 16),
             _row('Total', _mwk(total), bold: true, green: true),
             const SizedBox(height: 12),
@@ -439,30 +487,6 @@ class _CartSummary extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-}
-
-extension CartCopy on CartModel {
-  CartModel copyWith({
-    String? userId,
-    int? item,
-    int? quantity,
-    String? image,
-    String? name,
-    double? price,
-    String? description,
-    String? comment,
-  }) {
-    return CartModel(
-      userId: userId ?? this.userId,
-      item: item ?? this.item,
-      quantity: quantity ?? this.quantity,
-      name: name ?? this.name,
-      image: image ?? this.image,
-      price: price ?? this.price,
-      description: description ?? this.description,
-      comment: comment ?? this.comment,
     );
   }
 }
