@@ -1,3 +1,4 @@
+// lib/main.dart
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
@@ -26,17 +27,10 @@ import 'package:vero360_app/services/api_config.dart';
 
 final GlobalKey<NavigatorState> navKey = GlobalKey<NavigatorState>();
 
-/// Small snapshot we compute before runApp, so the first frame shows the correct shell.
-class BootSnapshot {
-  final String shell; // 'merchant' | 'customer' | 'login'
-  final String email;
-  BootSnapshot({required this.shell, required this.email});
-}
-
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Firebase (best-effort)
+  // Best-effort Firebase init (safe to keep if you use it)
   try {
     await Firebase.initializeApp(
       options: const FirebaseOptions(
@@ -49,36 +43,15 @@ Future<void> main() async {
         measurementId: "",
       ),
     );
-  } catch (_) { /* ignore */ }
+  } catch (_) {}
 
-  // Init API base
-  await ApiConfig.init();
+  await ApiConfig.init(); // sets your base URLs
 
-  // Decide initial shell BEFORE first frame
-  final prefs = await SharedPreferences.getInstance();
-  final token = prefs.getString('jwt_token') ??
-      prefs.getString('token') ??
-      prefs.getString('authToken') ??
-      '';
-  final cachedRole = (prefs.getString('user_role') ?? '').toLowerCase();
-  final email = prefs.getString('email') ?? '';
-
-  String initialShell;
-  if (token.isEmpty) {
-    initialShell = 'login';
-  } else if (cachedRole == 'merchant') {
-    initialShell = 'merchant';
-  } else {
-    // default to customer when token exists but no cached role yet
-    initialShell = 'customer';
-  }
-
-  runApp(MyApp(initial: BootSnapshot(shell: initialShell, email: email)));
+  runApp(const MyApp());
 }
 
 class MyApp extends StatefulWidget {
-  final BootSnapshot initial;
-  const MyApp({Key? key, required this.initial}) : super(key: key);
+  const MyApp({Key? key}) : super(key: key);
   @override
   State<MyApp> createState() => _MyAppState();
 }
@@ -87,38 +60,30 @@ class _MyAppState extends State<MyApp> {
   late final AppLinks _appLinks;
   StreamSubscription<Uri>? _sub;
 
-  // Track shell so verification can correct if needed
-  late String _currentShell; // 'merchant' | 'customer' | 'login'
+  // Which shell we’re currently showing (purely for nav correctness)
+  String _currentShell = 'customer'; // customer home is the default (Bottomnavbar)
 
   @override
   void initState() {
     super.initState();
-    _currentShell = widget.initial.shell; // show the cached shell immediately
     _initDeepLinks();
 
-    // Verify role with server after first frame (fast), and correct if needed.
-    SchedulerBinding.instance.addPostFrameCallback((_) {
-      _verifyRoleFromServerInBg();
+    // 1) Instant redirect using cached role (no spinner)
+    // 2) Quick verify with server to correct if needed
+    SchedulerBinding.instance.addPostFrameCallback((_) async {
+      await _fastRedirectFromCache();
+      unawaited(_verifyRoleFromServerInBg());
     });
   }
 
   Future<void> _initDeepLinks() async {
     _appLinks = AppLinks();
-    _sub = _appLinks.uriLinkStream.listen(
-      (uri) {
-        if (uri != null) _routeFor(uri);
-      },
-      onError: (_) {},
-    );
-  }
-
-  void _routeFor(Uri uri) {
-    // vero360://users/me
-    if (uri.scheme == 'vero360' && uri.host == 'users' && uri.path == '/me') {
-      navKey.currentState?.push(
-        MaterialPageRoute(builder: (_) => const ProfileFromLinkPage()),
-      );
-    }
+    _sub = _appLinks.uriLinkStream.listen((uri) {
+      if (uri == null) return;
+      if (uri.scheme == 'vero360' && uri.host == 'users' && uri.path == '/me') {
+        navKey.currentState?.push(MaterialPageRoute(builder: (_) => const ProfileFromLinkPage()));
+      }
+    }, onError: (_) {});
   }
 
   @override
@@ -127,7 +92,51 @@ class _MyAppState extends State<MyApp> {
     super.dispose();
   }
 
-  // ---- Role utilities ----
+  // ---------- Shell & role helpers ----------
+  Future<void> _fastRedirectFromCache() async {
+    final prefs = await SharedPreferences.getInstance();
+    final role = (prefs.getString('user_role') ?? '').toLowerCase();
+    final email = prefs.getString('email') ?? '';
+
+    if (role == 'merchant') {
+      _pushMerchant(email);
+    } // else keep customer home by default
+  }
+
+  Future<void> _verifyRoleFromServerInBg() async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = _readToken(prefs);
+    if (token == null) return;
+
+    final base = await ApiConfig.readBase();
+    try {
+      final resp = await http
+          .get(Uri.parse('$base/users/me'), headers: {'Authorization': 'Bearer $token', 'Accept': 'application/json'})
+          .timeout(const Duration(seconds: 6));
+
+      if (resp.statusCode == 200) {
+        final decoded = json.decode(resp.body);
+        final user = (decoded is Map && decoded['data'] is Map)
+            ? Map<String, dynamic>.from(decoded['data'])
+            : (decoded is Map ? Map<String, dynamic>.from(decoded) : <String, dynamic>{});
+
+        await _persistUserToPrefs(prefs, user);
+        final merchant = _isMerchant(user);
+        if (merchant && _currentShell != 'merchant') {
+          _pushMerchant((user['email'] ?? '').toString());
+        } else if (!merchant && _currentShell != 'customer') {
+          _pushCustomer();
+        }
+      } else if (resp.statusCode == 401 || resp.statusCode == 403) {
+        await _clearAuth(prefs);
+        // Stay on customer home (public) per your UX – do not force login
+      }
+    } catch (_) {/* network hiccup: keep current shell */}
+  }
+
+  String? _readToken(SharedPreferences p) =>
+      p.getString('jwt_token') ?? p.getString('token') ?? p.getString('authToken');
+
   bool _isMerchant(Map<String, dynamic> u) {
     final role = (u['role'] ?? u['accountType'] ?? '').toString().toLowerCase();
     final roles = (u['roles'] is List)
@@ -152,69 +161,14 @@ class _MyAppState extends State<MyApp> {
     final phone = (u['phone'] ?? '').toString();
     final pic   = (u['profilepicture'] ?? u['profilePicture'] ?? '').toString();
 
-    final applicationStatus = (u['applicationStatus'] ?? '').toString().toLowerCase();
-    final kycStatus = (u['kycStatus'] ?? '').toString().toLowerCase();
-    final isVerified = (u['isVerified'] == true) || (u['merchantVerified'] == true);
-
     await prefs.setString('fullName', name.isEmpty ? 'Guest User' : name);
     await prefs.setString('name', name.isEmpty ? 'Guest User' : name);
     await prefs.setString('email', email.isEmpty ? 'No Email' : email);
     await prefs.setString('phone', phone.isEmpty ? 'No Phone' : phone);
     await prefs.setString('profilepicture', pic);
-    await prefs.setString('applicationStatus', applicationStatus);
-    await prefs.setString('kycStatus', kycStatus);
-    await prefs.setBool('merchant_verified', isVerified);
 
     final normalizedRole = _isMerchant(u) ? 'merchant' : 'customer';
     await prefs.setString('user_role', normalizedRole);
-  }
-
-  Future<void> _verifyRoleFromServerInBg() async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('jwt_token') ??
-        prefs.getString('token') ??
-        prefs.getString('authToken') ??
-        '';
-    if (token.isEmpty) {
-      if (_currentShell != 'login') _pushLogin();
-      return;
-    }
-
-    final base = await ApiConfig.readBase(); // use your configured base
-
-    try {
-      final resp = await http
-          .get(
-            Uri.parse('$base/users/me'),
-            headers: {'Authorization': 'Bearer $token', 'Accept': 'application/json'},
-          )
-          .timeout(const Duration(seconds: 6));
-
-      if (resp.statusCode == 200) {
-        final decoded = json.decode(resp.body);
-        final user = (decoded is Map && decoded['data'] is Map)
-            ? Map<String, dynamic>.from(decoded['data'])
-            : (decoded is Map ? Map<String, dynamic>.from(decoded) : <String, dynamic>{});
-
-        await _persistUserToPrefs(prefs, user);
-
-        final wantMerchant = _isMerchant(user);
-        final wantShell = wantMerchant ? 'merchant' : 'customer';
-
-        if (_currentShell != wantShell) {
-          if (wantMerchant) {
-            _pushMerchant((user['email'] ?? '').toString());
-          } else {
-            _pushBottom();
-          }
-        }
-      } else if (resp.statusCode == 401 || resp.statusCode == 403) {
-        await _clearAuth(prefs);
-        _pushLogin();
-      }
-    } catch (_) {
-      // offline/DNS — keep whatever we showed from cache
-    }
   }
 
   Future<void> _clearAuth(SharedPreferences prefs) async {
@@ -224,7 +178,6 @@ class _MyAppState extends State<MyApp> {
     await prefs.remove('user_role');
   }
 
-  // ---- Navigation helpers ----
   void _pushMerchant(String email) {
     if (!mounted) return;
     _currentShell = 'merchant';
@@ -234,7 +187,7 @@ class _MyAppState extends State<MyApp> {
     );
   }
 
-  void _pushBottom() {
+  void _pushCustomer() {
     if (!mounted) return;
     _currentShell = 'customer';
     navKey.currentState?.pushAndRemoveUntil(
@@ -252,32 +205,16 @@ class _MyAppState extends State<MyApp> {
     );
   }
 
-  // ---- App ----
+  // ---------- App ----------
   @override
   Widget build(BuildContext context) {
-    // Show the correct shell IMMEDIATELY based on cached decision
-    final Widget home;
-    switch (_currentShell) {
-      case 'merchant':
-        home = MerchantBottomnavbar(email: widget.initial.email);
-        break;
-      case 'customer':
-        home = const Bottomnavbar(email: '');
-        break;
-      default:
-        home = const LoginScreen();
-    }
-
+    // Start on Home (customer shell) for everyone
     return MaterialApp(
       navigatorKey: navKey,
       debugShowCheckedModeBanner: false,
       title: 'Vero360',
-      theme: ThemeData(
-        useMaterial3: true,
-        colorSchemeSeed: const Color(0xFFFF8A00),
-      ),
-      // Do NOT force an initialRoute that always shows customer first.
-      home: home,
+      theme: ThemeData(useMaterial3: true, colorSchemeSeed: const Color(0xFFFF8A00)),
+      home: const Bottomnavbar(email: ''), // ✅ default home (no login gate)
       routes: {
         '/marketplace': (context) => const Bottomnavbar(email: ''),
         '/signup': (context) => const RegisterScreen(),
@@ -286,5 +223,84 @@ class _MyAppState extends State<MyApp> {
             AuthGuard(child: CartPage(cartService: CartService('https://vero-backend.onrender.com', apiPrefix: ''))),
       },
     );
+  }
+}
+
+/// -------- Static helpers to use from Login / Logout screens ---------------
+class AuthFlow {
+  /// Call this RIGHT AFTER a successful login.
+  static Future<void> onLoginSuccess(BuildContext ctx, String token) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('jwt_token', token);
+
+    final base = await ApiConfig.readBase();
+    try {
+      final resp = await http.get(
+        Uri.parse('$base/users/me'),
+        headers: {'Authorization': 'Bearer $token', 'Accept': 'application/json'},
+      );
+      if (resp.statusCode == 200) {
+        final decoded = json.decode(resp.body);
+        final user = (decoded is Map && decoded['data'] is Map)
+            ? Map<String, dynamic>.from(decoded['data'])
+            : (decoded is Map ? Map<String, dynamic>.from(decoded) : <String, dynamic>{});
+
+        // persist minimal user + role
+        final role = _isMerchant(user) ? 'merchant' : 'customer';
+        await prefs.setString('user_role', role);
+        await prefs.setString('email', (user['email'] ?? '').toString());
+
+        // route to correct shell
+        if (role == 'merchant') {
+          navKey.currentState?.pushAndRemoveUntil(
+            MaterialPageRoute(builder: (_) => MerchantBottomnavbar(email: (user['email'] ?? '').toString())),
+            (route) => false,
+          );
+        } else {
+          navKey.currentState?.pushAndRemoveUntil(
+            MaterialPageRoute(builder: (_) => const Bottomnavbar(email: '')),
+            (route) => false,
+          );
+        }
+      } else {
+        // fallback to customer shell
+        navKey.currentState?.pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const Bottomnavbar(email: '')),
+          (route) => false,
+        );
+      }
+    } catch (_) {
+      // network fail: still send to customer shell; user can refresh later
+      navKey.currentState?.pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const Bottomnavbar(email: '')),
+        (route) => false,
+      );
+    }
+  }
+
+  /// Optional: call on logout.
+  static Future<void> logout(BuildContext ctx) async {
+    final p = await SharedPreferences.getInstance();
+    await p.remove('jwt_token');
+    await p.remove('token');
+    await p.remove('authToken');
+    await p.remove('user_role');
+    navKey.currentState?.pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const Bottomnavbar(email: '')),
+      (route) => false,
+    );
+  }
+
+  static bool _isMerchant(Map<String, dynamic> u) {
+    final role = (u['role'] ?? u['accountType'] ?? '').toString().toLowerCase();
+    final roles = (u['roles'] is List)
+        ? (u['roles'] as List).map((e) => e.toString().toLowerCase()).toList()
+        : <String>[];
+    final flags = {
+      'isMerchant': u['isMerchant'] == true,
+      'merchant': u['merchant'] == true,
+      'merchantId': (u['merchantId'] ?? '').toString().isNotEmpty,
+    };
+    return role == 'merchant' || roles.contains('merchant') || flags.values.any((v) => v == true);
   }
 }
