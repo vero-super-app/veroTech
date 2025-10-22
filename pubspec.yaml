@@ -50,6 +50,7 @@ dependencies:
   webview_flutter_wkwebview: ^3.17.0
   webview_windows: ^0.4.0
   flutter_inappwebview: ^6.0.0
+  jwt_decoder: ^2.0.1
 
 dev_dependencies:
   flutter_test:

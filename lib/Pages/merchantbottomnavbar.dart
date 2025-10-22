@@ -42,7 +42,7 @@ final cartService = CartService('https://vero-backend.onrender.com', apiPrefix: 
     _pages = [
       Vero360Homepage(email: widget.email),
       MarketPage(cartService: cartService),
-       MessagePage(),
+       MessagePage(peerId: '',),
       CartPage(cartService: cartService),
  
       MerchantProfilePage(),

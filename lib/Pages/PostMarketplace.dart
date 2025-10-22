@@ -1,15 +1,29 @@
 // lib/pages/marketplace_crud_page.dart
 import 'dart:typed_data';
-import 'dart:io' show File;
-
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:mime/mime.dart';
 
 import '../models/marketplace.model.dart';
 import '../services/marketplace.service.dart';
 import '../toasthelper.dart';
+
+// ⬇️ import your edit page (create it if you haven't yet)
+import 'marketplace_edit_page.dart';
+
+class LocalMedia {
+  final Uint8List bytes;
+  final String filename;
+  final String? mime;
+  final bool isVideo;
+  const LocalMedia({
+    required this.bytes,
+    required this.filename,
+    this.mime,
+    this.isVideo = false,
+  });
+}
 
 class MarketplaceCrudPage extends StatefulWidget {
   const MarketplaceCrudPage({super.key});
@@ -20,28 +34,31 @@ class MarketplaceCrudPage extends StatefulWidget {
 class _MarketplaceCrudPageState extends State<MarketplaceCrudPage>
     with SingleTickerProviderStateMixin {
   final svc = MarketplaceService();
+  final _picker = ImagePicker();
   late final TabController _tabs;
 
   final _form = GlobalKey<FormState>();
   final _name = TextEditingController();
   final _price = TextEditingController();
   final _desc = TextEditingController();
+
   bool _isActive = true;
   bool _submitting = false;
 
-  // Categories must match backend enum values
   static const List<String> _kCategories = <String>[
     'food', 'drinks', 'electronics', 'clothes', 'shoes', 'other'
   ];
   String? _category = 'other';
 
-  final _picker = ImagePicker();
-  XFile? _picked;
-  Uint8List? _pickedBytes;
+  // media (create tab)
+  LocalMedia? _cover;
+  final List<LocalMedia> _gallery = <LocalMedia>[];
+  final List<LocalMedia> _videos  = <LocalMedia>[];
 
+  // manage tab
   List<MarketplaceDetailModel> _items = [];
   bool _loadingItems = true;
-  bool _deleting = false;
+  bool _busyRow = false; // disables per-card buttons when true
 
   @override
   void initState() {
@@ -59,21 +76,13 @@ class _MarketplaceCrudPageState extends State<MarketplaceCrudPage>
     super.dispose();
   }
 
-  // ---------- data ----------
+  // ---------------- data ----------------
   Future<void> _loadItems() async {
     setState(() => _loadingItems = true);
     try {
-      final data = await svc.fetchMyItems(); // ONLY my items (auth required)
+      final data = await svc.fetchMyItems();
       if (!mounted) return;
       setState(() => _items = data);
-    } catch (e) {
-      if (!mounted) return;
-      ToastHelper.showCustomToast(
-        context,
-        'Failed to load items: $e',
-        isSuccess: false,
-        errorMessage: 'Load failed',
-      );
     } finally {
       if (mounted) setState(() => _loadingItems = false);
     }
@@ -84,7 +93,7 @@ class _MarketplaceCrudPageState extends State<MarketplaceCrudPage>
       context: context,
       builder: (_) => AlertDialog(
         title: const Text('Delete item'),
-        content: Text('Delete “${item.name}”?'),
+        content: Text('Delete “${item.name}”? This cannot be undone.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
           TextButton(
@@ -96,79 +105,119 @@ class _MarketplaceCrudPageState extends State<MarketplaceCrudPage>
     );
     if (ok != true) return;
 
-    setState(() => _deleting = true);
+    setState(() => _busyRow = true);
     try {
-      await svc.deleteItem(item.id); // server enforces ownership
+      await svc.deleteItem(item.id);
       _items.removeWhere((e) => e.id == item.id);
       setState(() {});
       ToastHelper.showCustomToast(context, 'Deleted • ${item.name}', isSuccess: true, errorMessage: 'Deleted');
     } catch (e) {
       ToastHelper.showCustomToast(context, 'Delete failed: $e', isSuccess: false, errorMessage: 'Delete failed');
     } finally {
-      if (mounted) setState(() => _deleting = false);
+      if (mounted) setState(() => _busyRow = false);
     }
   }
 
-  // ---------- image pick ----------
-  Future<void> _pickFromGallery() async {
-    final x = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 90, maxWidth: 2048);
-    if (x != null) {
-      _picked = x;
-      _pickedBytes = kIsWeb ? await x.readAsBytes() : null;
-      setState(() {});
+  Future<void> _editItem(MarketplaceDetailModel item) async {
+    final changed = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(builder: (_) => MarketplaceEditPage(item: item)),
+    );
+    if (changed == true) {
+      // refresh grid after editing
+      await _loadItems();
     }
   }
 
-  Future<void> _pickFromCamera() async {
-    final x = await _picker.pickImage(source: ImageSource.camera, imageQuality: 90, maxWidth: 2048);
-    if (x != null) {
-      _picked = x;
-      _pickedBytes = kIsWeb ? await x.readAsBytes() : null;
-      setState(() {});
-    }
+  // ---------------- pickers (bytes) ----------------
+  Future<void> _pickCover(ImageSource src) async {
+    final x = await _picker.pickImage(source: src, imageQuality: 90, maxWidth: 2048);
+    if (x == null) return;
+    final bytes = await x.readAsBytes();
+    setState(() {
+      _cover = LocalMedia(
+        bytes: bytes,
+        filename: x.name,
+        mime: lookupMimeType(x.name, headerBytes: bytes),
+      );
+    });
   }
 
-  void _clearPicked() {
-    _picked = null;
-    _pickedBytes = null;
+  Future<void> _pickGalleryMulti() async {
+    final xs = await _picker.pickMultiImage(imageQuality: 90, maxWidth: 2048);
+    for (final x in xs) {
+      final bytes = await x.readAsBytes();
+      _gallery.add(LocalMedia(
+        bytes: bytes,
+        filename: x.name,
+        mime: lookupMimeType(x.name, headerBytes: bytes),
+      ));
+    }
     setState(() {});
   }
 
-  // ---------- create ----------
+  Future<void> _pickVideo() async {
+    final x = await _picker.pickVideo(source: ImageSource.gallery, maxDuration: const Duration(minutes: 2));
+    if (x == null) return;
+    final bytes = await x.readAsBytes();
+    _videos.add(LocalMedia(
+      bytes: bytes,
+      filename: x.name,
+      mime: lookupMimeType(x.name, headerBytes: bytes),
+      isVideo: true,
+    ));
+    setState(() {});
+  }
+
+  void _removeGalleryAt(int i) { _gallery.removeAt(i); setState(() {}); }
+  void _removeVideoAt(int i) { _videos.removeAt(i); setState(() {}); }
+  void _clearCover() { _cover = null; setState(() {}); }
+
+  // ---------------- uploads ----------------
+  Future<List<String>> _uploadAll(List<LocalMedia> items) async {
+    final urls = <String>[];
+    for (final m in items) {
+      final u = await svc.uploadBytes(m.bytes, filename: m.filename);
+      urls.add(u);
+    }
+    return urls;
+  }
+
+  // ---------------- create ----------------
   Future<void> _create() async {
     if (!_form.currentState!.validate()) return;
-    if (_picked == null) {
-      ToastHelper.showCustomToast(context, 'Please pick a photo', isSuccess: false, errorMessage: 'Photo required');
+    if (_cover == null) {
+      ToastHelper.showCustomToast(context, 'Please pick a cover photo',
+          isSuccess: false, errorMessage: 'Photo required');
       return;
     }
 
     setState(() => _submitting = true);
     try {
-      // 1) secure upload (requires token)
-      final imageUrl = await svc.uploadImageFile(File(_picked!.path));
+      final coverUrl   = await svc.uploadBytes(_cover!.bytes, filename: _cover!.filename);
+      final galleryUrl = await _uploadAll(_gallery);
+      final videoUrl   = await _uploadAll(_videos);
 
-      // 2) create (server stamps ownerId from JWT)
       final item = MarketplaceItem(
         name: _name.text.trim(),
         price: double.tryParse(_price.text.trim()) ?? 0,
-        image: imageUrl,
+        image: coverUrl,
         description: _desc.text.trim().isEmpty ? null : _desc.text.trim(),
         isActive: _isActive,
-        category: _category, // include enum value
+        category: _category,
+        gallery: galleryUrl,
+        videos: videoUrl,
       );
+
       await svc.createItem(item);
 
       ToastHelper.showCustomToast(context, 'Item Created', isSuccess: true, errorMessage: 'Created');
 
-      // reset & refresh
+      // reset
       _form.currentState!.reset();
-      _name.clear();
-      _price.clear();
-      _desc.clear();
-      _picked = null;
-      _pickedBytes = null;
-      _isActive = true;
-      _category = 'other';
+      _name.clear(); _price.clear(); _desc.clear();
+      _cover = null; _gallery.clear(); _videos.clear();
+      _isActive = true; _category = 'other';
       setState(() {});
       await _loadItems();
       _tabs.animateTo(1);
@@ -179,28 +228,27 @@ class _MarketplaceCrudPageState extends State<MarketplaceCrudPage>
     }
   }
 
-  // ---------- UI ----------
+  // ---------------- UI ----------------
   @override
   Widget build(BuildContext context) {
-    final canCreate = !_submitting && _picked != null;
+    final canCreate = !_submitting && _cover != null;
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Marketplace'),
         bottom: TabBar(
           controller: _tabs,
-          tabs: const [
-            Tab(text: 'Add Item'),
-            Tab(text: 'Manage My Items'),
-          ],
+          tabs: const [Tab(text: 'Add Item'), Tab(text: 'Manage My Items')],
         ),
       ),
-      body: TabBarView(
-        controller: _tabs,
-        children: [
-          _buildAddTab(canCreate),
-          _buildManageTab(),
-        ],
+      body: SafeArea(
+        child: TabBarView(
+          controller: _tabs,
+          children: [
+            _buildAddTab(canCreate),
+            _buildManageTab(),
+          ],
+        ),
       ),
     );
   }
@@ -221,14 +269,52 @@ class _MarketplaceCrudPageState extends State<MarketplaceCrudPage>
                 const Text('Add Product', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
                 const SizedBox(height: 12),
 
-                _FullBleedPicker(
-                  picked: _picked,
-                  pickedBytes: _pickedBytes,
-                  onPickGallery: _pickFromGallery,
-                  onPickCamera: _pickFromCamera,
-                  onClearPicked: _clearPicked,
+                // cover picker preview
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: _cover == null
+                      ? Container(
+                          height: 220,
+                          color: Colors.grey.shade100,
+                          child: const Center(child: Icon(Icons.image, size: 64, color: Colors.black38)),
+                        )
+                      : Image.memory(_cover!.bytes, height: 220, width: double.infinity, fit: BoxFit.cover),
                 ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    FilledButton.tonalIcon(
+                      onPressed: () => _pickCover(ImageSource.gallery),
+                      icon: const Icon(Icons.photo_library),
+                      label: const Text('Gallery'),
+                    ),
+                    const SizedBox(width: 8),
+                    OutlinedButton.icon(
+                      onPressed: () => _pickCover(ImageSource.camera),
+                      icon: const Icon(Icons.photo_camera),
+                      label: const Text('Camera'),
+                    ),
+                    const Spacer(),
+                    if (_cover != null)
+                      TextButton.icon(
+                        onPressed: _clearCover,
+                        icon: const Icon(Icons.close),
+                        label: const Text('Clear'),
+                      ),
+                  ],
+                ),
+
+                const SizedBox(height: 16),
+                const Text('More photos (optional)', style: TextStyle(fontWeight: FontWeight.w700)),
+                const SizedBox(height: 8),
+                _mediaStripImages(),
+
                 const SizedBox(height: 12),
+                const Text('Videos (optional)', style: TextStyle(fontWeight: FontWeight.w700)),
+                const SizedBox(height: 8),
+                _mediaStripVideos(),
+
+                const SizedBox(height: 16),
 
                 // NAME
                 TextFormField(
@@ -252,14 +338,11 @@ class _MarketplaceCrudPageState extends State<MarketplaceCrudPage>
                 ),
                 const SizedBox(height: 12),
 
-                // CATEGORY (ENUM DROPDOWN)
+                // CATEGORY
                 DropdownButtonFormField<String>(
                   value: _category,
                   items: _kCategories
-                      .map((c) => DropdownMenuItem<String>(
-                            value: c,
-                            child: Text(_titleCase(c)),
-                          ))
+                      .map((c) => DropdownMenuItem<String>(value: c, child: Text(_titleCase(c))))
                       .toList(),
                   onChanged: (v) => setState(() => _category = v),
                   decoration: const InputDecoration(
@@ -305,7 +388,81 @@ class _MarketplaceCrudPageState extends State<MarketplaceCrudPage>
     );
   }
 
-  /// Manage tab
+  Widget _mediaStripImages() {
+    return SizedBox(
+      height: 96,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: _gallery.length + 1,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (_, i) {
+          if (i == _gallery.length) {
+            return OutlinedButton.icon(
+              onPressed: _pickGalleryMulti,
+              icon: const Icon(Icons.add_photo_alternate),
+              label: const Text('Add'),
+            );
+          }
+          final m = _gallery[i];
+          return Stack(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: Image.memory(m.bytes, width: 128, height: 96, fit: BoxFit.cover),
+              ),
+              Positioned(
+                right: 4, top: 4,
+                child: InkWell(
+                  onTap: () => _removeGalleryAt(i),
+                  child: const CircleAvatar(radius: 12, backgroundColor: Colors.black54, child: Icon(Icons.close, size: 14, color: Colors.white)),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _mediaStripVideos() {
+    return SizedBox(
+      height: 72,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: _videos.length + 1,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (_, i) {
+          if (i == _videos.length) {
+            return OutlinedButton.icon(
+              onPressed: _pickVideo,
+              icon: const Icon(Icons.video_library),
+              label: const Text('Add video'),
+            );
+          }
+          return Stack(
+            children: [
+              Container(
+                width: 160, height: 72,
+                decoration: BoxDecoration(
+                  color: Colors.black12,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Center(child: Icon(Icons.play_arrow_rounded)),
+              ),
+              Positioned(
+                right: 4, top: 4,
+                child: InkWell(
+                  onTap: () => _removeVideoAt(i),
+                  child: const CircleAvatar(radius: 12, backgroundColor: Colors.black54, child: Icon(Icons.close, size: 14, color: Colors.white)),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
   Widget _buildManageTab() {
     if (_loadingItems) return const Center(child: CircularProgressIndicator());
     if (_items.isEmpty) {
@@ -323,169 +480,121 @@ class _MarketplaceCrudPageState extends State<MarketplaceCrudPage>
 
     return RefreshIndicator(
       onRefresh: _loadItems,
-      child: GridView.builder(
-        padding: const EdgeInsets.fromLTRB(12, 12, 12, 20),
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 2, crossAxisSpacing: 12, mainAxisSpacing: 12, childAspectRatio: 0.78,
-        ),
-        itemCount: _items.length,
-        itemBuilder: (context, i) {
-          final it = _items[i];
-          return _ItemCard(
-            item: it,
-            deleting: _deleting,
-            onDelete: () => _deleteItem(it),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          // Responsive columns
+          int crossAxisCount = 2;
+          if (constraints.maxWidth >= 1200) {
+            crossAxisCount = 4;
+          } else if (constraints.maxWidth >= 700) {
+            crossAxisCount = 3;
+          }
+
+          // Safe aspect ratio: image 16:9 + texts/buttons
+          // 0.70…0.80 works well across widths; tweak slightly for wide screens
+  final aspect = (constraints.maxWidth >= 700) ? 0.90 : 0.88; // space yapansi pa card ← was 0.75 / 0.70
+
+
+          return GridView.builder(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 20),
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: crossAxisCount,
+              crossAxisSpacing: 12,
+              mainAxisSpacing: 12,
+              childAspectRatio: aspect,
+            ),
+            itemCount: _items.length,
+            itemBuilder: (context, i) {
+              final it = _items[i];
+              return _ManageCard(
+                item: it,
+                busy: _busyRow,
+                onEdit: () => _editItem(it),
+                onDelete: () => _deleteItem(it),
+              );
+            },
           );
         },
       ),
     );
   }
 
-  String _titleCase(String s) {
-    if (s.isEmpty) return s;
-    return s[0].toUpperCase() + s.substring(1);
-  }
+  String _titleCase(String s) => s.isEmpty ? s : (s[0].toUpperCase() + s.substring(1));
 }
 
-/* ---------------- helper widgets ---------------- */
 
-class _FullBleedPicker extends StatelessWidget {
-  const _FullBleedPicker({
-    required this.picked,
-    required this.pickedBytes,
-    required this.onPickGallery,
-    required this.onPickCamera,
-    required this.onClearPicked,
-  });
 
-  final XFile? picked;
-  final Uint8List? pickedBytes;
-  final VoidCallback onPickGallery;
-  final VoidCallback onPickCamera;
-  final VoidCallback onClearPicked;
 
-  @override
-  Widget build(BuildContext context) {
-    final has = picked != null;
-    Widget inner;
 
-    if (has) {
-      if (kIsWeb && pickedBytes != null) {
-        inner = Image.memory(pickedBytes!, height: 220, width: double.infinity, fit: BoxFit.cover);
-      } else {
-        inner = Image.file(File(picked!.path), height: 220, width: double.infinity, fit: BoxFit.cover);
-      }
-    } else {
-      inner = Container(
-        height: 220,
-        decoration: BoxDecoration(
-          color: Colors.grey.shade100,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.grey.shade300),
-        ),
-        child: const Center(child: Icon(Icons.image, size: 64, color: Colors.black38)),
-      );
-    }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        ClipRRect(borderRadius: BorderRadius.circular(16), child: inner),
-        const SizedBox(height: 10),
-        Row(
-          children: [
-            FilledButton.tonalIcon(
-              onPressed: onPickGallery,
-              icon: const Icon(Icons.photo_library),
-              label: const Text('Gallery'),
-            ),
-            const SizedBox(width: 8),
-            OutlinedButton.icon(
-              onPressed: onPickCamera,
-              icon: const Icon(Icons.photo_camera),
-              label: const Text('Camera'),
-            ),
-            const Spacer(),
-            if (has)
-              TextButton.icon(
-                onPressed: onClearPicked,
-                icon: const Icon(Icons.close),
-                label: const Text('Clear'),
-              ),
-          ],
-        ),
-      ],
-    );
-  }
-}
 
-class _ItemCard extends StatelessWidget {
-  const _ItemCard({
+/* ---------- Manage card, tuned to avoid overflows ---------- */
+
+class _ManageCard extends StatelessWidget {
+  const _ManageCard({
     required this.item,
+    required this.onEdit,
     required this.onDelete,
-    required this.deleting,
+    required this.busy,
   });
 
   final MarketplaceDetailModel item;
+  final VoidCallback onEdit;
   final VoidCallback onDelete;
-  final bool deleting;
+  final bool busy;
 
   @override
   Widget build(BuildContext context) {
-    final hasImage = (item.image).toString().trim().isNotEmpty;
-    final cat = (item.category ?? '').isEmpty ? null : item.category;
-
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       clipBehavior: Clip.antiAlias,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          SizedBox(
-            height: 160,
-            child: Stack(
-              children: [
-                Positioned.fill(
-                  child: hasImage
-                      ? Image.network(
-                          item.image,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => _imgFallback(),
-                        )
-                      : _imgFallback(),
-                ),
-                if (cat != null)
-                  Positioned(
-                    left: 8,
-                    top: 8,
-                    child: Chip(
-                      label: Text(cat[0].toUpperCase() + cat.substring(1)),
-                      backgroundColor: Colors.black.withOpacity(0.75),
-                      labelStyle: const TextStyle(color: Colors.white),
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
+          // Top media (fixed ratio prevents overflow)
+          Stack(
+            children: [
+              AspectRatio(
+                aspectRatio: 16 / 9,
+                child: Image.network(
+                  item.image,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => Container(
+                    color: Colors.grey.shade200,
+                    child: const Center(
+                      child: Icon(Icons.image_not_supported_outlined, color: Colors.black38),
                     ),
                   ),
-                Positioned(
-                  right: 8,
-                  top: 8,
-                  child: FilledButton.tonalIcon(
-                    onPressed: deleting ? null : onDelete,
-                    style: FilledButton.styleFrom(
-                      backgroundColor: Colors.white.withOpacity(0.85),
-                      foregroundColor: Colors.red.shade700,
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                    ),
-                    icon: deleting
-                        ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                        : const Icon(Icons.delete_outline),
-                    label: const Text('Delete'),
-                  ),
                 ),
-              ],
-            ),
+              ),
+              // Overlay actions (top-right)
+              Positioned(
+                right: 6,
+                top: 6,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _roundIcon(
+                      icon: Icons.edit_outlined,
+                      tooltip: 'Edit',
+                      onTap: busy ? null : onEdit,
+                    ),
+                    const SizedBox(width: 6),
+                    _roundIcon(
+                      icon: Icons.delete_outline,
+                      tooltip: 'Delete',
+                      color: Colors.red.shade600,
+                      onTap: busy ? null : onDelete,
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
+
+          // Title
           Padding(
-            padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
             child: Text(
               item.name,
               maxLines: 1,
@@ -493,14 +602,19 @@ class _ItemCard extends StatelessWidget {
               style: const TextStyle(fontWeight: FontWeight.w700),
             ),
           ),
+
+          // Price + fallback actions (for very narrow tiles)
           Padding(
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
             child: Row(
               children: [
                 Text('MK ${item.price.toStringAsFixed(0)}',
                     style: const TextStyle(fontWeight: FontWeight.w600)),
                 const Spacer(),
-                const Icon(Icons.chevron_right, size: 18, color: Colors.black45),
+                // small buttons visible on narrow layouts;
+                // they duplicate the overlay actions but help when overlay is cramped
+           
+               
               ],
             ),
           ),
@@ -509,10 +623,24 @@ class _ItemCard extends StatelessWidget {
     );
   }
 
-  Widget _imgFallback() => Container(
-        color: Colors.grey.shade200,
-        child: const Center(
-          child: Icon(Icons.image_not_supported_outlined, color: Colors.black38),
+  Widget _roundIcon({
+    required IconData icon,
+    String? tooltip,
+    Color? color,
+    VoidCallback? onTap,
+  }) {
+    final btn = Material(
+      color: Colors.white.withOpacity(0.90),
+      shape: const CircleBorder(),
+      child: InkWell(
+        onTap: onTap,
+        customBorder: const CircleBorder(),
+        child: Padding(
+          padding: const EdgeInsets.all(6),
+          child: Icon(icon, size: 18, color: color ?? Colors.black87),
         ),
-      );
+      ),
+    );
+    return tooltip == null ? btn : Tooltip(message: tooltip, child: btn);
+  }
 }

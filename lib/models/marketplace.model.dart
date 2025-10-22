@@ -1,4 +1,35 @@
-// lib/models/marketplace.model.dart
+class MarketplaceItem {
+  final String name;
+  final double price;
+  final String image;                 // cover URL
+  final String? description;
+  final bool isActive;
+  final String? category;
+  final List<String>? gallery;        // extra image URLs
+  final List<String>? videos;         // video URLs
+
+  MarketplaceItem({
+    required this.name,
+    required this.price,
+    required this.image,
+    this.description,
+    this.isActive = true,
+    this.category,
+    this.gallery,
+    this.videos,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'price': price,
+        'image': image,
+        if (description != null) 'description': description,
+        'isActive': isActive,
+        if (category != null) 'category': category,
+        if (gallery != null && gallery!.isNotEmpty) 'gallery': gallery,
+        if (videos != null && videos!.isNotEmpty) 'videos': videos,
+      };
+}
 
 class MarketplaceDetailModel {
   final int id;
@@ -6,16 +37,20 @@ class MarketplaceDetailModel {
   final String image;
   final double price;
   final String description;
-  final String? category; // NEW
+  final String? comment;
+  final String? category;
+  final List<String> gallery;
+  final List<String> videos;
 
-  // Optional seller/merchant fields
-  final String? serviceProviderId;
+  // (optional) seller fields
   final String? sellerBusinessName;
   final String? sellerOpeningHours;
   final String? sellerStatus;
   final String? sellerBusinessDescription;
   final double? sellerRating;
   final String? sellerLogoUrl;
+  final String? serviceProviderId;
+  final String? sellerUserId;
 
   MarketplaceDetailModel({
     required this.id,
@@ -23,136 +58,50 @@ class MarketplaceDetailModel {
     required this.image,
     required this.price,
     required this.description,
+    this.comment,
     this.category,
-    this.serviceProviderId,
+    this.gallery = const [],
+    this.videos = const [],
     this.sellerBusinessName,
     this.sellerOpeningHours,
     this.sellerStatus,
     this.sellerBusinessDescription,
     this.sellerRating,
     this.sellerLogoUrl,
+    this.serviceProviderId,
+    this.sellerUserId,
   });
 
-  factory MarketplaceDetailModel.fromJson(Map<String, dynamic> json) {
-    final dynamic nested = json['serviceProvider'] ?? json['merchant'] ?? json['seller'];
-    final Map<String, dynamic>? sp = nested is Map<String, dynamic> ? nested : null;
+ factory MarketplaceDetailModel.fromJson(Map<String, dynamic> j) {
+  List<String> _arr(dynamic v) =>
+      (v is List) ? v.map((e) => '$e').where((s) => s.isNotEmpty).cast<String>().toList() : const <String>[];
+  double _num(dynamic v) => (v is num) ? v.toDouble() : double.tryParse('$v') ?? 0.0;
 
-    String? _str(Map<String, dynamic>? m, String k) {
-      final v = m?[k];
-      if (v == null) return null;
-      final s = v.toString().trim();
-      return s.isEmpty ? null : s;
-    }
+  // fallback: if backend doesn’t send sellerUserId but sends ownerId, use it
+  final String? _sellerUserId =
+      (j['sellerUserId'] ?? j['ownerId'])?.toString();
 
-    double? _numToDouble(Object? v) {
-      if (v == null) return null;
-      if (v is num) return v.toDouble();
-      return double.tryParse(v.toString());
-    }
-
-    final priceRaw = json['price'];
-    final price = priceRaw is num ? priceRaw.toDouble() : double.tryParse('${priceRaw ?? 0}') ?? 0.0;
-
-    final idRaw = json['id'];
-    final id = idRaw is int ? idRaw : int.tryParse('$idRaw') ?? 0;
-
-    final serviceProviderId =
-        _str(json, 'serviceProviderId') ??
-        _str(json, 'ServiceProviderID') ??
-        _str(sp, 'serviceProviderId') ??
-        _str(sp, 'ServiceProviderID');
-
-    final sellerBusinessName =
-        _str(sp, 'businessName') ??
-        _str(json, 'merchantBusinessName') ??
-        _str(json, 'businessName');
-
-    final sellerOpeningHours = _str(sp, 'openingHours') ?? _str(json, 'openingHours');
-    final sellerStatus = _str(sp, 'status') ?? _str(json, 'status');
-    final sellerBusinessDescription =
-        _str(sp, 'businessDescription') ?? _str(json, 'businessDescription');
-
-    final sellerRating = _numToDouble(sp?['rating']) ?? _numToDouble(json['merchantRating']);
-    final sellerLogoUrl = _str(sp, 'logoUrl') ?? _str(sp, 'logoimage') ?? _str(json, 'logoUrl');
-
-    return MarketplaceDetailModel(
-      id: id,
-      name: (json['name'] ?? '').toString(),
-      image: (json['image'] ?? json['img'] ?? '').toString(),
-      price: price,
-      description: (json['description'] ?? '').toString(),
-      category: json['category']?.toString(), // NEW
-      serviceProviderId: serviceProviderId,
-      sellerBusinessName: sellerBusinessName,
-      sellerOpeningHours: sellerOpeningHours,
-      sellerStatus: sellerStatus,
-      sellerBusinessDescription: sellerBusinessDescription,
-      sellerRating: sellerRating,
-      sellerLogoUrl: sellerLogoUrl,
-    );
-  }
+  return MarketplaceDetailModel(
+    id: j['id'] ?? 0,
+    name: '${j['name'] ?? ''}',
+    image: '${j['image'] ?? ''}',
+    price: _num(j['price'] ?? 0),
+    description: '${j['description'] ?? ''}',
+    comment: j['comment']?.toString(),
+    category: j['category']?.toString(),
+    gallery: _arr(j['gallery']),
+    videos: _arr(j['videos']),
+    sellerBusinessName: j['sellerBusinessName']?.toString(),
+    sellerOpeningHours: j['sellerOpeningHours']?.toString(),
+    sellerStatus: j['sellerStatus']?.toString(),
+    sellerBusinessDescription: j['sellerBusinessDescription']?.toString(),
+    sellerRating: (j['sellerRating'] is num)
+        ? (j['sellerRating'] as num).toDouble()
+        : double.tryParse('${j['sellerRating']}'),
+    sellerLogoUrl: j['sellerLogoUrl']?.toString(),
+    serviceProviderId: j['serviceProviderId']?.toString(),
+    sellerUserId: _sellerUserId, // <- now set
+  );
 }
 
-class MarketplaceItem {
-  final int? id; // nullable on create
-  final String name;
-  final String? image;
-  final double price;
-  final String? description;
-  final bool isActive;
-
-  // Optional, if you surface it
-  final String? serviceProviderId;
-
-  // NEW: category sent to backend
-  final String? category; // 'food' | 'drinks' | 'electronics' | 'clothes' | 'shoes' | 'other'
-
-  MarketplaceItem({
-    this.id,
-    required this.name,
-    required this.price,
-    this.image,
-    this.description,
-    this.isActive = true,
-    this.serviceProviderId,
-    this.category,
-  });
-
-  factory MarketplaceItem.fromJson(Map<String, dynamic> json) {
-    final priceNum = json['price'];
-    final parsedPrice = priceNum is num
-        ? priceNum.toDouble()
-        : double.tryParse('${priceNum ?? 0}') ?? 0;
-
-    return MarketplaceItem(
-      id: json['id'] is int ? json['id'] as int? : int.tryParse('${json['id']}'),
-      name: (json['name'] ?? '').toString(),
-      image: _pickImage(json),
-      price: parsedPrice,
-      description: json['description']?.toString(),
-      isActive: (json['isActive'] is bool)
-          ? (json['isActive'] as bool)
-          : ((json['isActive']?.toString().toLowerCase() ?? '') == 'true'),
-      serviceProviderId: (json['serviceProviderId'] ?? json['ServiceProviderID'])?.toString(),
-      category: json['category']?.toString(),
-    );
-  }
-
-  static String? _pickImage(Map<String, dynamic> json) {
-    final v = json['image'] ?? json['img'];
-    if (v == null) return null;
-    final s = v.toString().trim();
-    return s.isEmpty ? null : s;
-  }
-
-  Map<String, dynamic> toJson() => {
-        if (id != null) 'id': id,
-        'name': name,
-        'image': image,
-        'price': price,
-        'description': description,
-        'isActive': isActive,
-        if (serviceProviderId != null) 'serviceProviderId': serviceProviderId,
-        if (category != null) 'category': category, // NEW
-      };
 }
