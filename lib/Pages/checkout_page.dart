@@ -1,15 +1,20 @@
-// lib/Pages/checkout_page.dart
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:vero360_app/Pages/address.dart';
 
 import 'package:vero360_app/models/marketplace.model.dart';
 import 'package:vero360_app/services/paychangu_service.dart';
-
 import 'package:vero360_app/toasthelper.dart';
 import 'package:vero360_app/Pages/payment_webview.dart'; // PaymentWebView(checkoutUrl: ...)
+
+// ⬇️ Address imports
+import 'package:vero360_app/models/address_model.dart';
+import 'package:vero360_app/services/address_service.dart';
+
+
 
 enum PaymentMethod { mobile, card, cod }
 
@@ -22,7 +27,7 @@ class CheckoutPage extends StatefulWidget {
 }
 
 class _CheckoutPageState extends State<CheckoutPage> {
-  // ► Mobile money provider constants (labels your UI shows)
+  // ► Mobile money provider constants
   static const String _kAirtel = 'AirtelMoney';
   static const String _kMpamba = 'Mpamba';
 
@@ -30,15 +35,27 @@ class _CheckoutPageState extends State<CheckoutPage> {
   final _noteCtrl = TextEditingController();
 
   PaymentMethod _method = PaymentMethod.mobile;
-  String _provider = _kAirtel;        // default dropdown selection
+  String _provider = _kAirtel;
 
   String? _phoneError;
   int _qty = 1;
   bool _submitting = false;
 
+  // ⬇️ Default address state
+  final _addrSvc = AddressService();
+  Address? _defaultAddr;
+  bool _loadingAddr = true;
+  bool _loggedIn = false;
+
   double get _subtotal => widget.item.price * _qty;
-  double get _delivery => 0;          // adjust if you add delivery fees
+  double get _delivery => 0;
   double get _total => _subtotal + _delivery;
+
+  @override
+  void initState() {
+    super.initState();
+    _initAuthAndAddress();
+  }
 
   @override
   void dispose() {
@@ -47,13 +64,13 @@ class _CheckoutPageState extends State<CheckoutPage> {
     super.dispose();
   }
 
-  // ── Provider helpers used in UI/validation ──────────────────────────────
+  // ── Provider helpers ─────────────────────────────────────────────────────
   String get _providerLabel => _provider == _kAirtel ? 'Airtel Money' : 'TNM Mpamba';
   String get _providerHint  => _provider == _kAirtel ? '09xxxxxxxx'   : '08xxxxxxxx';
-  IconData get _providerIcon => _provider == _kAirtel ? Icons.phone_android_rounded
-                                                      : Icons.phone_iphone_rounded;
+  IconData get _providerIcon => _provider == _kAirtel
+      ? Icons.phone_android_rounded
+      : Icons.phone_iphone_rounded;
 
-  // Validate: 10 digits + prefix based on selected provider
   String? _validatePhoneForSelectedProvider(String raw) {
     final p = raw.replaceAll(RegExp(r'\D'), '');
     if (p.length != 10) return 'Phone must be exactly 10 digits';
@@ -65,47 +82,110 @@ class _CheckoutPageState extends State<CheckoutPage> {
     }
     return null;
   }
-  // ===== helpers (paste inside your State class) ===============================
-Future<String?> _readAuthToken() async {
-  final sp = await SharedPreferences.getInstance();
-  for (final k in const ['token', 'jwt_token', 'jwt']) {
-    final v = sp.getString(k);
-    if (v != null && v.isNotEmpty) return v;
+
+  // ── Auth + Default address bootstrap ─────────────────────────────────────
+  Future<String?> _readAuthToken() async {
+    final sp = await SharedPreferences.getInstance();
+    for (final k in const ['token', 'jwt_token', 'jwt']) {
+      final v = sp.getString(k);
+      if (v != null && v.isNotEmpty) return v;
+    }
+    return null;
   }
-  return null;
-}
 
-/// Try to derive numeric user id from the JWT payload (sub | id | userId).
-Future<int?> _userIdFromJwt() async {
-  final t = await _readAuthToken();
-  if (t == null) return null;
-  try {
-    final parts = t.split('.');
-    if (parts.length != 3) return null;
-    String p = parts[1].replaceAll('-', '+').replaceAll('_', '/');
-    while (p.length % 4 != 0) { p += '='; }
-    final payload = jsonDecode(utf8.decode(base64.decode(p)));
-    final raw = payload['sub'] ?? payload['id'] ?? payload['userId'];
-    return raw == null ? null : int.tryParse(raw.toString());
-  } catch (_) { return null; }
-}
-  Future<bool> _isLoggedIn() async => (await _readAuthToken()) != null;
+  Future<void> _initAuthAndAddress() async {
+    setState(() {
+      _loadingAddr = true;
+      _defaultAddr = null;
+      _loggedIn = false;
+    });
 
-// ---------- Checkout guard ----------
-Future<bool> _requireLogin() async {
-  if (!await _isLoggedIn()) {
-    ToastHelper.showCustomToast(
-      context,
-      'Please log in to complete checkout.',
-      isSuccess: false,
-      errorMessage: 'Not logged in',
+    final token = await _readAuthToken();
+    if (!mounted) return;
+
+    if (token == null) {
+      setState(() {
+        _loggedIn = false;
+        _loadingAddr = false;
+      });
+      return;
+    }
+
+    try {
+      final list = await _addrSvc.getMyAddresses();
+      Address? def = list.firstWhere(
+        (a) => a.isDefault,
+        orElse: () => list.isNotEmpty ? list.first : null as Address,
+      );
+      setState(() {
+        _loggedIn = true;
+        _defaultAddr = def?.isDefault == true ? def : null; // require true default
+        _loadingAddr = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _loggedIn = true; // we had a token
+        _defaultAddr = null;
+        _loadingAddr = false;
+      });
+    }
+  }
+
+  Future<bool> _ensureDefaultAddress() async {
+    if (!_loggedIn) {
+      ToastHelper.showCustomToast(
+        context,
+        'Please log in to continue.',
+        isSuccess: false,
+        errorMessage: 'Auth required',
+      );
+      return false;
+    }
+    if (_defaultAddr != null) return true;
+
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Delivery address required'),
+        content: const Text(
+          'You need to set a default address before checkout.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Set address')),
+        ],
+      ),
     );
+
+    if (go == true) {
+      await Navigator.push(context, MaterialPageRoute(builder: (_) => const AddressPage()));
+      await _initAuthAndAddress();
+      return _defaultAddr != null;
+    }
     return false;
   }
-  return true;
-}
 
+  // ── Common guards ────────────────────────────────────────────────────────
+  Future<bool> _requireLogin() async {
+    final t = await _readAuthToken();
+    final ok = t != null;
+    if (!ok) {
+      ToastHelper.showCustomToast(
+        context,
+        'Please log in to complete checkout.',
+        isSuccess: false,
+        errorMessage: 'Not logged in',
+      );
+    }
+    return ok;
+  }
+
+  // ── Pay routing ─────────────────────────────────────────────────────────
   Future<void> _onPayPressed() async {
+    if (!await _requireLogin()) return;
+    if (!await _ensureDefaultAddress()) return;
+
     switch (_method) {
       case PaymentMethod.mobile:
         await _payMobile();
@@ -121,8 +201,6 @@ Future<bool> _requireLogin() async {
 
   // ── Mobile Money flow ───────────────────────────────────────────────────
   Future<void> _payMobile() async {
-    if (!await _requireLogin()) return;
-
     final err = _validatePhoneForSelectedProvider(_phoneCtrl.text);
     if (err != null) {
       setState(() => _phoneError = err);
@@ -132,20 +210,16 @@ Future<bool> _requireLogin() async {
     setState(() => _phoneError = null);
 
     final phone = _phoneCtrl.text.replaceAll(RegExp(r'\D'), '');
-
     setState(() => _submitting = true);
-    try {
-      final sp = await SharedPreferences.getInstance();
-      final userId = sp.getInt('userId');
 
-      // NOTE: Your /payments/pay DTO does not require provider; we include it in description.
+    try {
       final resp = await PaymentsService.pay(
         amount: _total,
         currency: 'MWK',
-        phoneNumber: phone,                 // required for mobile
+        phoneNumber: phone,
         relatedType: 'ORDER',
-        description: 'Order for ${widget.item.name} (x$_qty) • via $_providerLabel',
-        // You can also pass txRef/relatedId if you want; service generates defaults.
+        description:
+            'Order for ${widget.item.name} (x$_qty) • $_providerLabel • Deliver to: ${_defaultAddr?.city ?? '-'}',
       );
 
       if (resp.checkoutUrl != null && resp.checkoutUrl!.isNotEmpty) {
@@ -175,18 +249,17 @@ Future<bool> _requireLogin() async {
     }
   }
 
-  // ── Card flow (hosted page) ─────────────────────────────────────────────
+  // ── Card flow ───────────────────────────────────────────────────────────
   Future<void> _payCard() async {
-    if (!await _requireLogin()) return;
-
     setState(() => _submitting = true);
     try {
       final resp = await PaymentsService.pay(
         amount: _total,
         currency: 'MWK',
-        phoneNumber: null, // not needed for card
+        phoneNumber: null,
         relatedType: 'ORDER',
-        description: 'Card payment for ${widget.item.name} (x$_qty)',
+        description:
+            'Card payment for ${widget.item.name} (x$_qty) • Deliver to: ${_defaultAddr?.city ?? '-'}',
       );
 
       if (resp.checkoutUrl != null && resp.checkoutUrl!.isNotEmpty) {
@@ -216,14 +289,11 @@ Future<bool> _requireLogin() async {
     }
   }
 
-  // ── Cash on Delivery (simple confirm / create order call if you have it) ─
+  // ── Cash on Delivery ────────────────────────────────────────────────────
   Future<void> _placeCOD() async {
-    if (!await _requireLogin()) return;
-
-    // TODO: call your create-order endpoint if needed
     ToastHelper.showCustomToast(
       context,
-      'Order placed • Cash on Delivery',
+      'Order placed • COD',
       isSuccess: true,
       errorMessage: 'OK',
     );
@@ -241,6 +311,8 @@ Future<bool> _requireLogin() async {
   @override
   Widget build(BuildContext context) {
     final item = widget.item;
+
+    final canPay = !_submitting && _loggedIn && _defaultAddr != null;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Checkout')),
@@ -292,13 +364,25 @@ Future<bool> _requireLogin() async {
 
           const SizedBox(height: 12),
 
+          // ── Delivery Address (required) ───────────────────────────────────
+          _DeliveryAddressCard(
+            loading: _loadingAddr,
+            loggedIn: _loggedIn,
+            address: _defaultAddr,
+            onManage: () async {
+              await Navigator.push(context, MaterialPageRoute(builder: (_) => const AddressPage()));
+              await _initAuthAndAddress();
+            },
+          ),
+
+          const SizedBox(height: 12),
+
           // ── Payment method selector with inline Mobile Money fields ───────
           Card(
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
             elevation: 0.5,
             child: Column(
               children: [
-                // Mobile Money row + expanding section
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -323,10 +407,7 @@ Future<bool> _requireLogin() async {
                     ),
                   ],
                 ),
-
                 const Divider(height: 1),
-
-                // Card row (collapsed)
                 RadioListTile<PaymentMethod>(
                   value: PaymentMethod.card,
                   groupValue: _method,
@@ -334,10 +415,7 @@ Future<bool> _requireLogin() async {
                   title: const Text('Card'),
                   secondary: const Icon(Icons.credit_card_rounded),
                 ),
-
                 const Divider(height: 1),
-
-                // Cash on Delivery row (collapsed)
                 RadioListTile<PaymentMethod>(
                   value: PaymentMethod.cod,
                   groupValue: _method,
@@ -350,8 +428,6 @@ Future<bool> _requireLogin() async {
           ),
 
           const SizedBox(height: 12),
-
-         
 
           // ── Summary ───────────────────────────────────────────────────────
           Card(
@@ -375,7 +451,7 @@ Future<bool> _requireLogin() async {
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
-              onPressed: _submitting ? null : _onPayPressed,
+              onPressed: canPay ? _onPayPressed : null,
               icon: _submitting
                   ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
                   : const Icon(Icons.lock),
@@ -391,7 +467,7 @@ Future<bool> _requireLogin() async {
     );
   }
 
-  // ── Inline Mobile Money fields (provider dropdown + single phone) ────────
+  // ── Inline Mobile Money fields ───────────────────────────────────────────
   Widget _mobileFields() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -466,5 +542,86 @@ Future<bool> _requireLogin() async {
         Text(right, style: style),
       ],
     );
+  }
+}
+
+// ── Delivery Address card widget ───────────────────────────────────────────
+class _DeliveryAddressCard extends StatelessWidget {
+  const _DeliveryAddressCard({
+    required this.loading,
+    required this.loggedIn,
+    required this.address,
+    required this.onManage,
+  });
+
+  final bool loading;
+  final bool loggedIn;
+  final Address? address;
+  final VoidCallback onManage;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      elevation: 0.5,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Delivery Address',
+                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+            const SizedBox(height: 8),
+            if (loading)
+              const SizedBox(
+                height: 40,
+                child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+              )
+            else if (!loggedIn)
+              _line('Not logged in', 'Please log in to select address')
+            else if (address == null)
+              _line('No default address', 'Set your default delivery address')
+            else
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _line(_label(address!.addressType), address!.city),
+                  if (address!.description.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Text(address!.description, style: TextStyle(color: Colors.grey.shade700)),
+                  ],
+                ],
+              ),
+            const SizedBox(height: 10),
+            Align(
+              alignment: Alignment.centerRight,
+              child: OutlinedButton.icon(
+                onPressed: onManage,
+                icon: const Icon(Icons.location_pin),
+                label: Text(address == null ? 'Set address' : 'Change'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static Widget _line(String a, String b) {
+    return Row(
+      children: [
+        Expanded(child: Text(a, style: const TextStyle(fontWeight: FontWeight.w600))),
+        Text(b, style: const TextStyle(color: Colors.black87)),
+      ],
+    );
+  }
+
+  static String _label(AddressType t) {
+    switch (t) {
+      case AddressType.home: return 'Home';
+      case AddressType.work: return 'Office';
+      case AddressType.business: return 'Business';
+      case AddressType.other: return 'Other';
+    }
   }
 }
