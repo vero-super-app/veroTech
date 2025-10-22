@@ -110,6 +110,36 @@ class AddressService {
         .toList();
   }
 
+  // lib/services/address_service.dart  (add two helpers)
+Future<List<Map<String, dynamic>>> placesAutocomplete(String q, {String? sessionToken}) async {
+  final base = await _readBase();
+  final h = await _authHeaders();
+  final u = Uri.parse('$base/addresses/places/autocomplete').replace(queryParameters: {
+    'q': q,
+    if (sessionToken != null) 'st': sessionToken,
+  });
+
+  final r = await _sendWithRetry(() => http.get(u, headers: h));
+  if (r.statusCode != 200) _handleBad(r);
+  final data = jsonDecode(r.body);
+  final List preds = (data['predictions'] ?? []) as List;
+  return preds.cast<Map<String, dynamic>>();
+}
+
+Future<Map<String, dynamic>?> placeDetails(String placeId, {String? sessionToken}) async {
+  final base = await _readBase();
+  final h = await _authHeaders();
+  final u = Uri.parse('$base/addresses/places/details/$placeId').replace(queryParameters: {
+    if (sessionToken != null) 'st': sessionToken,
+  });
+
+  final r = await _sendWithRetry(() => http.get(u, headers: h));
+  if (r.statusCode != 200) _handleBad(r);
+  final data = jsonDecode(r.body);
+  return (data['result'] ?? data) as Map<String, dynamic>?;
+}
+
+
   // POST /addresses
   Future<Address> createAddress(AddressPayload payload) async {
     final base = await _readBase();

@@ -1,5 +1,7 @@
+// lib/Pages/address.dart
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
 import 'package:vero360_app/models/address_model.dart';
 import 'package:vero360_app/services/address_service.dart';
 import 'package:vero360_app/toasthelper.dart';
@@ -12,163 +14,139 @@ class AddressPage extends StatefulWidget {
 }
 
 class _AddressPageState extends State<AddressPage> {
-  late final AddressService _svc;
-  late Future<List<Address>> _future;
-  List<Address> _cache = []; // ← local cache for instant render
-  String? _defaultId;
-
+  final _svc = AddressService();
   final Color _brand = const Color(0xFFFF8A00); // Vero orange
 
- @override
-void initState() {
-  super.initState();
-  _svc = AddressService();
-  _future = _svc.getMyAddresses().then((list) {
-    _cache = list;
-    // sync defaultId from server (authoritative)
-    final def = _cache.where((a) => a.isDefault).toList();
-    _defaultId = def.isNotEmpty ? def.first.id : null;
-    return list;
-  });
-  _loadDefaultId(); // optional: keep if you still want local fallback
-}
+  List<Address> _cache = [];
+  Future<List<Address>>? _future;
+  String? _defaultId; // local pointer (synced with server)
 
-  Future<void> _loadDefaultId() async {
-    final prefs = await SharedPreferences.getInstance();
-    setState(() => _defaultId = prefs.getString('default_address_id'));
+  @override
+  void initState() {
+    super.initState();
+    _future = _loadAddresses();
   }
 
-  Future<void> _saveDefaultId(String? id) async {
-    final prefs = await SharedPreferences.getInstance();
-    if (id == null || id.isEmpty) {
-      await prefs.remove('default_address_id');
-      setState(() => _defaultId = null);
-    } else {
-      await prefs.setString('default_address_id', id);
-      setState(() => _defaultId = id);
-    }
+  Future<List<Address>> _loadAddresses() async {
+    final list = await _svc.getMyAddresses();
+    _cache = list;
+    final def = list.where((a) => a.isDefault).toList();
+    _defaultId = def.isNotEmpty ? def.first.id : null;
+    return list;
   }
 
   Future<void> _reload() async {
-    setState(() => _future = _svc.getMyAddresses());
+    setState(() => _future = _loadAddresses());
     await _future;
   }
 
-Future<void> _openCreate() async {
-  final created = await showModalBottomSheet<Address>(
-    context: context,
-    isScrollControlled: true,
-    backgroundColor: Colors.transparent,
-    builder: (_) => _GlassSheet(
-      child: AddressFormSheet(
-        title: 'Add new address',
-        accent: _brand,
-        onSubmit: (payload) => _svc.createAddress(payload),
+  Future<void> _openCreate() async {
+    final created = await showModalBottomSheet<Address>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _GlassSheet(
+        child: AddressFormSheet(
+          title: 'Add new address',
+          accent: _brand,
+          onSubmit: (payload) => _svc.createAddress(payload),
+        ),
       ),
-    ),
-  );
-  if (created != null) {
-    // optimistic insert (default on top)
-    setState(() {
-      if (created.isDefault) {
-        _cache = _cache.map((a) => a.copyWith(isDefault: false)).toList();
-        _defaultId = created.id;
+    );
+    if (created != null) {
+      setState(() {
+        // optimistic insert
         _cache = [created, ..._cache];
-      } else {
-        _cache = [created, ..._cache];
-      }
-      _future = Future.value(_cache); // make FutureBuilder happy
-    });
-
-    // then reconcile with server
-    try { await _reload(); } catch (_) {}
-    ToastHelper.showCustomToast(context, 'Address created', isSuccess: true, errorMessage: '');
+        if (created.isDefault) {
+          _cache = _cache.map((a) => a.copyWith(isDefault: a.id == created.id)).toList();
+          _defaultId = created.id;
+        }
+        _future = Future.value(_cache);
+      });
+      ToastHelper.showCustomToast(context, 'Address created', isSuccess: true, errorMessage: '');
+      await _reload();
+    }
   }
-}
 
-
-
-Future<void> _openEdit(Address addr) async {
-  final updated = await showModalBottomSheet<Address>(
-    context: context,
-    isScrollControlled: true,
-    backgroundColor: Colors.transparent,
-    builder: (_) => _GlassSheet(
-      child: AddressFormSheet(
-        title: 'Edit address',
-        initial: AddressPayload(
-          addressType: addr.addressType,
-          city: addr.city,
-          description: addr.description,
+  Future<void> _openEdit(Address addr) async {
+    final updated = await showModalBottomSheet<Address>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _GlassSheet(
+        child: AddressFormSheet(
+          title: 'Edit address',
+          accent: _brand,
+          initial: AddressPayload(
+            addressType: addr.addressType,
+            city: addr.city,
+            description: addr.description,
+            isGoogle: addr.isGoogle,
+            formattedAddress: addr.formattedAddress.isEmpty ? null : addr.formattedAddress,
+            placeId: addr.placeId.isEmpty ? null : addr.placeId,
+            lat: addr.lat,
+            lng: addr.lng,
+          ),
+          onSubmit: (payload) => _svc.updateAddress(addr.id, payload),
         ),
-        accent: _brand,
-        onSubmit: (payload) => _svc.updateAddress(addr.id, payload),
       ),
-    ),
-  );
-  if (updated != null) {
-    setState(() {
-      _cache = _cache.map((a) => a.id == addr.id ? updated : a).toList();
-      if (updated.isDefault) _defaultId = updated.id;
-      _future = Future.value(_cache);
-    });
-    try { await _reload(); } catch (_) {}
-    ToastHelper.showCustomToast(context, 'Address updated', isSuccess: true, errorMessage: '');
+    );
+    if (updated != null) {
+      setState(() {
+        _cache = _cache.map((a) => a.id == updated.id ? updated : a).toList();
+        if (updated.isDefault) _defaultId = updated.id;
+        _future = Future.value(_cache);
+      });
+      ToastHelper.showCustomToast(context, 'Address updated', isSuccess: true, errorMessage: '');
+      await _reload();
+    }
   }
-}
 
-
-
- Future<void> _confirmDelete(Address addr) async {
-  final ok = await showDialog<bool>(
-    context: context,
-    builder: (context) => AlertDialog(
-      title: const Text('Delete address'),
-      content: const Text('Are you sure you want to delete this address? This action cannot be undone.'),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context, false),
-          child: const Text('Cancel'),
-        ),
-        TextButton(
-          onPressed: () => Navigator.pop(context, true),
-          style: TextButton.styleFrom(foregroundColor: Colors.red),
-          child: const Text('Delete'),
-        ),
-      ],
-    ),
-  );
-  if (ok == true) {
-    await _svc.deleteAddress(addr.id);
-    setState(() {
-      _cache = _cache.where((a) => a.id != addr.id).toList();
-      if (_defaultId == addr.id) _defaultId = _cache.firstWhere((a) => a.isDefault, orElse: () => _cache.isNotEmpty ? _cache.first : addr).id;
-      _future = Future.value(_cache);
-    });
-    try { await _reload(); } catch (_) {}
-    ToastHelper.showCustomToast(context, 'Address deleted', isSuccess: true, errorMessage: '');
+  Future<void> _confirmDelete(Address addr) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Delete Address'),
+        content: Text('Delete "${addr.displayLine}"?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: _brand),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) {
+      await _svc.deleteAddress(addr.id);
+      setState(() {
+        _cache = _cache.where((a) => a.id != addr.id).toList();
+        if (_defaultId == addr.id) {
+          final maybe = _cache.firstWhere((a) => a.isDefault, orElse: () => _cache.isNotEmpty ? _cache.first : addr);
+          _defaultId = _cache.isNotEmpty ? maybe.id : null;
+        }
+        _future = Future.value(_cache);
+      });
+      ToastHelper.showCustomToast(context, 'Address deleted', isSuccess: true, errorMessage: '');
+      await _reload();
+    }
   }
-}
 
-
-
-
- Future<void> _setDefault(Address a) async {
-  try {
-    await _svc.setDefaultAddress(a.id);
-    setState(() {
-      _cache = _cache.map((x) => x.copyWith(isDefault: x.id == a.id)).toList();
-      _defaultId = a.id;
-      _future = Future.value(_cache);
-    });
-    try { await _reload(); } catch (_) {}
-    ToastHelper.showCustomToast(context, 'Default address set', isSuccess: true, errorMessage: '');
-  } catch (e) {
-    ToastHelper.showCustomToast(context, 'Failed to set default', isSuccess: false, errorMessage: e.toString());
+  Future<void> _setDefault(Address a) async {
+    try {
+      await _svc.setDefaultAddress(a.id); // server atomic setter
+      setState(() {
+        _cache = _cache.map((x) => x.copyWith(isDefault: x.id == a.id)).toList();
+        _defaultId = a.id;
+        _future = Future.value(_cache);
+      });
+      ToastHelper.showCustomToast(context, 'Default address set', isSuccess: true, errorMessage: '');
+      await _reload();
+    } catch (e) {
+      ToastHelper.showCustomToast(context, 'Failed to set default', isSuccess: false, errorMessage: e.toString());
+    }
   }
-}
-
-
 
   @override
   Widget build(BuildContext context) {
@@ -203,16 +181,9 @@ Future<void> _openEdit(Address addr) async {
               child: FutureBuilder<List<Address>>(
                 future: _future,
                 builder: (context, snap) {
-                  if (snap.connectionState == ConnectionState.done && snap.data != null) {
-  _cache = snap.data!;
-  // keep server default in sync:
-  final def = _cache.where((a) => a.isDefault).toList();
-  _defaultId = def.isNotEmpty ? def.first.id : _defaultId;
-}
-final items = _cache; // ← always render from cache
                   if (snap.connectionState != ConnectionState.done) {
                     return const Center(child: CircularProgressIndicator());
-                  } 
+                  }
                   if (snap.hasError) {
                     return ListView(
                       children: [
@@ -227,7 +198,7 @@ final items = _cache; // ← always render from cache
                     );
                   }
 
-          
+                  final items = _cache;
                   if (items.isEmpty) {
                     return ListView(
                       children: [
@@ -247,7 +218,7 @@ final items = _cache; // ← always render from cache
                       return _AddressCard(
                         brand: _brand,
                         address: a,
-                        groupValue: _defaultId,     // ← ONE shared group
+                        groupValue: _defaultId,
                         onSetDefault: () => _setDefault(a),
                         onEdit: () => _openEdit(a),
                         onDelete: () => _confirmDelete(a),
@@ -381,7 +352,7 @@ class _AddressCard extends StatelessWidget {
 
   final Color brand;
   final Address address;
-  final String? groupValue;          // shared across radios
+  final String? groupValue;
   final VoidCallback onSetDefault;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
@@ -407,15 +378,13 @@ class _AddressCard extends StatelessWidget {
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 14, 10, 14),
           child: Row(
-            children: {
-              // icon
+            children: [
               CircleAvatar(
                 radius: 24,
                 backgroundColor: brand.withOpacity(.12),
                 child: Icon(_iconForType(address.addressType), color: brand),
               ),
               const SizedBox(width: 12),
-              // text
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -428,6 +397,15 @@ class _AddressCard extends StatelessWidget {
                           _labelForType(address.addressType),
                           style: t.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
                         ),
+                        if (address.isGoogle)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.blue.withOpacity(.1),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Text('Google', style: t.textTheme.labelSmall?.copyWith(color: Colors.blue, fontWeight: FontWeight.w600)),
+                          ),
                         if (isDefault)
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -440,19 +418,18 @@ class _AddressCard extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 4),
-                    Text(address.city, style: t.textTheme.bodyMedium),
+                    Text(address.displayLine, style: t.textTheme.bodyMedium),
                     const SizedBox(height: 2),
                     Text(subtitle, style: t.textTheme.bodySmall?.copyWith(color: const Color(0xFF6B778C))),
                   ],
                 ),
               ),
-              // actions
               Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Radio<String>(
                     value: address.id,
-                    groupValue: groupValue, // ← shared
+                    groupValue: groupValue,
                     activeColor: brand,
                     onChanged: (_) => onSetDefault(),
                   ),
@@ -465,7 +442,7 @@ class _AddressCard extends StatelessWidget {
                   ),
                 ],
               ),
-            }.toList(),
+            ],
           ),
         ),
       ),
@@ -541,9 +518,19 @@ class AddressFormSheet extends StatefulWidget {
 
 class _AddressFormSheetState extends State<AddressFormSheet> {
   final _formKey = GlobalKey<FormState>();
+
+  // Manual fields
   late AddressType _type;
   final _cityCtrl = TextEditingController();
   final _descCtrl = TextEditingController();
+
+  // Google flow
+  bool _useGoogle = false;
+  final _googleSearchCtrl = TextEditingController();
+  List<Map<String, dynamic>> _predictions = [];
+  Map<String, dynamic>? _selectedPlace;
+  String? _sessionToken; // optional grouping token
+
   bool _saving = false;
 
   @override
@@ -552,16 +539,49 @@ class _AddressFormSheetState extends State<AddressFormSheet> {
     _type = widget.initial?.addressType ?? AddressType.home;
     _cityCtrl.text = widget.initial?.city ?? '';
     _descCtrl.text = widget.initial?.description ?? '';
+
+    // if initial has google fields, switch to Google tab
+    if (widget.initial?.isGoogle == true ||
+        (widget.initial?.placeId?.isNotEmpty ?? false) ||
+        (widget.initial?.formattedAddress?.isNotEmpty ?? false)) {
+      _useGoogle = true;
+      _googleSearchCtrl.text = widget.initial?.formattedAddress ?? widget.initial?.city ?? '';
+    }
   }
 
   @override
   void dispose() {
     _cityCtrl.dispose();
     _descCtrl.dispose();
+    _googleSearchCtrl.dispose();
     super.dispose();
   }
 
-  Future<void> _submit() async {
+  // ----------------- Google proxy -----------------
+  Future<void> _onQueryChanged(String q) async {
+    if (q.trim().length < 2) {
+      setState(() => _predictions = []);
+      return;
+    }
+    try {
+      final svc = AddressService();
+      final preds = await svc.placesAutocomplete(q, sessionToken: _sessionToken);
+      if (!mounted) return;
+      setState(() => _predictions = preds);
+    } catch (_) {}
+  }
+
+  Future<void> _selectPrediction(Map<String, dynamic> p) async {
+    final placeId = (p['place_id'] ?? p['placeId'] ?? '').toString();
+    if (placeId.isEmpty) return;
+    final svc = AddressService();
+    final det = await svc.placeDetails(placeId, sessionToken: _sessionToken);
+    if (!mounted) return;
+    setState(() => _selectedPlace = det);
+  }
+
+  // ----------------- Submissions -----------------
+  Future<void> _submitManual() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _saving = true);
     try {
@@ -580,6 +600,41 @@ class _AddressFormSheetState extends State<AddressFormSheet> {
     }
   }
 
+  Future<void> _submitGoogle() async {
+    if (_selectedPlace == null) {
+      ToastHelper.showCustomToast(context, 'Select an address from suggestions', isSuccess: false, errorMessage: '');
+      return;
+    }
+    setState(() => _saving = true);
+    try {
+      final res = _selectedPlace!['result'] ?? _selectedPlace!;
+      final fa = (res['formatted_address'] ?? '').toString();
+      final pid = (res['place_id'] ?? '').toString();
+      final loc = res['geometry']?['location'];
+      final lat = (loc?['lat'] as num?)?.toDouble();
+      final lng = (loc?['lng'] as num?)?.toDouble();
+
+      final payload = AddressPayload(
+        addressType: _type,
+        city: _cityCtrl.text.isNotEmpty ? _cityCtrl.text.trim() : fa,
+        description: _descCtrl.text.trim(),
+        isGoogle: true,
+        formattedAddress: fa,
+        placeId: pid,
+        lat: lat,
+        lng: lng,
+      );
+      final result = await widget.onSubmit(payload);
+      if (mounted) Navigator.pop(context, result);
+    } catch (e) {
+      if (!mounted) return;
+      ToastHelper.showCustomToast(context, 'Failed', isSuccess: false, errorMessage: e.toString());
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  // ----------------- UI -----------------
   @override
   Widget build(BuildContext context) {
     final brand = widget.accent;
@@ -615,72 +670,218 @@ class _AddressFormSheetState extends State<AddressFormSheet> {
                 ),
               ),
               const SizedBox(height: 12),
-              Form(
-                key: _formKey,
-                child: Column(
-                  children: [
-                    DropdownButtonFormField<AddressType>(
-                      value: _type,
-                      decoration: const InputDecoration(labelText: 'Type', border: OutlineInputBorder()),
-                      items: AddressType.values
-                          .map((t) => DropdownMenuItem(value: t, child: Text(_label(t))))
-                          .toList(),
-                      onChanged: (v) => setState(() => _type = v ?? AddressType.home),
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: _cityCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'City',
-                        hintText: 'e.g. Lilongwe',
-                        border: OutlineInputBorder(),
-                      ),
-                      validator: (v) => (v == null || v.trim().isEmpty) ? 'City is required' : null,
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: _descCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Description',
-                        hintText: 'e.g. Area 17, Street riverside, House No 23.',
-                        border: OutlineInputBorder(),
-                      ),
-                      maxLines: 3,
-                    ),
-                    const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton(
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: Colors.black87,
-                              side: BorderSide(color: Colors.black12.withOpacity(.4)),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                            ),
-                            onPressed: _saving ? null : () => Navigator.pop(context),
-                            child: const Text('Cancel'),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: FilledButton(
-                            style: FilledButton.styleFrom(
-                              backgroundColor: brand,
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                            ),
-                            onPressed: _saving ? null : _submit,
-                            child: Text(_saving ? 'Saving…' : 'Save address'),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
+
+              // Toggle Manual / Google
+              Row(
+                children: [
+                  ChoiceChip(
+                    label: const Text('Manual'),
+                    selected: !_useGoogle,
+                    onSelected: (v) => setState(() => _useGoogle = !v),
+                  ),
+                  const SizedBox(width: 8),
+                  ChoiceChip(
+                    label: const Text('Google'),
+                    selected: _useGoogle,
+                    onSelected: (v) => setState(() => _useGoogle = v),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+
+              if (!_useGoogle)
+                _manualForm(brand)
+              else
+                _googleForm(brand),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _manualForm(Color brand) {
+    return Form(
+      key: _formKey,
+      child: Column(
+        children: [
+          DropdownButtonFormField<AddressType>(
+            value: _type,
+            decoration: const InputDecoration(labelText: 'Type', border: OutlineInputBorder()),
+            items: AddressType.values
+                .map((t) => DropdownMenuItem(value: t, child: Text(_label(t))))
+                .toList(),
+            onChanged: (v) => setState(() => _type = v ?? AddressType.home),
+          ),
+          const SizedBox(height: 12),
+          TextFormField(
+            controller: _cityCtrl,
+            decoration: const InputDecoration(
+              labelText: 'City / Label',
+              hintText: 'e.g. Lilongwe',
+              border: OutlineInputBorder(),
+            ),
+            validator: (v) => (v == null || v.trim().isEmpty) ? 'City is required' : null,
+          ),
+          const SizedBox(height: 12),
+          TextFormField(
+            controller: _descCtrl,
+            decoration: const InputDecoration(
+              labelText: 'Description',
+              hintText: 'e.g. Area 17, Street riverside, House No 23.',
+              border: OutlineInputBorder(),
+            ),
+            maxLines: 3,
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.black87,
+                    side: BorderSide(color: Colors.black12.withOpacity(.4)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  ),
+                  onPressed: _saving ? null : () => Navigator.pop(context),
+                  child: const Text('Cancel'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: FilledButton(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: brand,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                  onPressed: _saving ? null : _submitManual,
+                  child: Text(_saving ? 'Saving…' : 'Save address'),
                 ),
               ),
             ],
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _googleForm(Color brand) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        DropdownButtonFormField<AddressType>(
+          value: _type,
+          decoration: const InputDecoration(labelText: 'Type', border: OutlineInputBorder()),
+          items: AddressType.values
+              .map((t) => DropdownMenuItem(value: t, child: Text(_label(t))))
+              .toList(),
+          onChanged: (v) => setState(() => _type = v ?? AddressType.home),
         ),
+        const SizedBox(height: 12),
+
+        // Optional manual label (city) & description still available
+        TextField(
+          controller: _cityCtrl,
+          decoration: const InputDecoration(
+            labelText: 'Label (optional)',
+            hintText: 'e.g. Home, Office, Area 12',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _descCtrl,
+          decoration: const InputDecoration(
+            labelText: 'Delivery notes (optional)',
+            hintText: 'Gate color, flat number, etc.',
+            border: OutlineInputBorder(),
+          ),
+          maxLines: 3,
+        ),
+        const SizedBox(height: 12),
+
+        TextField(
+          controller: _googleSearchCtrl,
+          decoration: const InputDecoration(
+            labelText: 'Search address (Google)',
+            hintText: 'Start typing…',
+            border: OutlineInputBorder(),
+            prefixIcon: Icon(Icons.search),
+          ),
+          onChanged: _onQueryChanged,
+        ),
+        const SizedBox(height: 8),
+
+        if (_predictions.isNotEmpty)
+          Container(
+            constraints: const BoxConstraints(maxHeight: 220),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.black12),
+            ),
+            child: ListView.separated(
+              itemCount: _predictions.length,
+              separatorBuilder: (_, __) => const Divider(height: 1),
+              itemBuilder: (_, i) {
+                final p = _predictions[i];
+                final main = p['structured_formatting']?['main_text'] ?? p['description'] ?? '';
+                final sec = p['structured_formatting']?['secondary_text'] ?? '';
+                return ListTile(
+                  leading: const Icon(Icons.place_outlined),
+                  title: Text(main.toString(), maxLines: 1, overflow: TextOverflow.ellipsis),
+                  subtitle: sec.toString().isNotEmpty
+                      ? Text(sec.toString(), maxLines: 1, overflow: TextOverflow.ellipsis)
+                      : null,
+                  onTap: () => _selectPrediction(p),
+                );
+              },
+            ),
+          ),
+
+        if (_selectedPlace != null) ...[
+          const SizedBox(height: 8),
+          _placePreviewCard(_selectedPlace!, brand),
+        ],
+
+        const SizedBox(height: 16),
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: brand,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              padding: const EdgeInsets.symmetric(vertical: 14),
+            ),
+            onPressed: _saving ? null : _submitGoogle,
+            child: Text(_saving ? 'Saving…' : 'Save address'),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _placePreviewCard(Map<String, dynamic> det, Color brand) {
+    final res = det['result'] ?? det;
+    final fa = (res['formatted_address'] ?? '').toString();
+    final loc = res['geometry']?['location'];
+    final lat = loc?['lat']?.toString();
+    final lng = loc?['lng']?.toString();
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: brand.withOpacity(.06),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.place, color: Colors.black54),
+          const SizedBox(width: 8),
+          Expanded(child: Text(fa, maxLines: 3)),
+          if (lat != null && lng != null)
+            Text('($lat,$lng)', style: const TextStyle(color: Colors.black54)),
+        ],
       ),
     );
   }
