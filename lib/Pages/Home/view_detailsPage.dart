@@ -9,6 +9,7 @@ import 'package:vero360_app/Pages/Home/Messages.dart';
 import 'package:vero360_app/Pages/checkout_page.dart';
 import 'package:vero360_app/models/marketplace.model.dart';
 import 'package:vero360_app/services/cart_services.dart';
+import 'package:vero360_app/services/chat_service.dart';
 import 'package:vero360_app/services/serviceprovider_service.dart';
 import 'package:vero360_app/models/serviceprovider_model.dart';
 import 'package:vero360_app/toasthelper.dart';
@@ -143,6 +144,31 @@ class _DetailsPageState extends State<DetailsPage> {
     return info;
   }
 
+   Future<String?> _readAuthToken() async {
+    final sp = await SharedPreferences.getInstance();
+    for (final k in const ['token', 'jwt_token', 'jwt']) {
+      final v = sp.getString(k);
+      if (v != null && v.isNotEmpty) return v;
+    }
+    return null;
+  }
+
+
+  Future<bool> _requireLogin() async {
+    final t = await _readAuthToken();
+    final ok = t != null;
+    if (!ok) {
+      ToastHelper.showCustomToast(
+        context,
+        'Please log in to chat with merchant.',
+        isSuccess: false,
+        errorMessage: 'Not logged in',
+      );
+    }
+    return ok;
+  }
+
+
   Future<String?> getMyUserId() async {
   final sp = await SharedPreferences.getInstance();
   final token = sp.getString('jwt_token') ?? sp.getString('token');
@@ -233,22 +259,39 @@ class _DetailsPageState extends State<DetailsPage> {
     Navigator.push(context, MaterialPageRoute(builder: (_) => VideoPlayerPage(url: url)));
   }
 
- void _openChat(MarketplaceDetailModel item) {
-  final String? peer = [item.sellerUserId, item.serviceProviderId]
-      .firstWhere((v) => v != null && v.trim().isNotEmpty, orElse: () => null);
+ Future<void> _openChat(MarketplaceDetailModel item) async {
+  if (!await _requireLogin()) return;
 
-  if (peer == null) {
-    _toast('Seller chat unavailable', Icons.info_outline, Colors.red);
+    // 1) Resolve peer
+  final peerAppId = (item.serviceProviderId ?? item.sellerUserId ?? '').trim();
+  if (peerAppId.isEmpty) {
+    _toast('Seller chat unavailable', Icons.info_outline, Colors.orange);
     return;
   }
 
+  // 2) Prepare names/avatars
+  final sellerName = item.sellerBusinessName ?? 'Seller';
+  final sellerAvatar = item.sellerLogoUrl ?? '';
+
+  // 3) Auth + ensure thread metadata
+  await ChatService.ensureFirebaseAuth();
+  final me = await ChatService.myAppUserId();
+  await ChatService.ensureThread(
+    myAppId: me,
+    peerAppId: peerAppId,
+    peerName: sellerName,
+    peerAvatar: sellerAvatar,
+  );
+
+  // 4) Go to chat
+  if (!mounted) return;
   Navigator.push(
     context,
     MaterialPageRoute(
       builder: (_) => MessagePage(
-        peerId: peer,
-        peerName: item.sellerBusinessName ?? 'Seller',
-        peerAvatarUrl: item.sellerLogoUrl,
+        peerAppId: peerAppId,
+        peerName: sellerName,
+        peerAvatarUrl: sellerAvatar, peerId: '',
       ),
     ),
   );

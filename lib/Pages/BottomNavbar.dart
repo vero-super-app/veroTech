@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:vero360_app/screens/chat_list_page.dart';
 import 'package:vero360_app/services/api_config.dart';
 
 import 'homepage.dart';
@@ -41,7 +42,8 @@ final cartService = CartService('https://vero-backend.onrender.com', apiPrefix: 
     _pages = [
       Vero360Homepage(email: widget.email),
       MarketPage(cartService: cartService),
-      MessagePage(peerId: '',),
+      ChatListPage(),
+      // MessagePage(peerId: '', peerAppId: '',),
       CartPage(cartService: cartService),
 
       ProfilePage(),

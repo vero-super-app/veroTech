@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:carousel_slider/carousel_slider.dart';
-import 'package:vero360_app/Accomodation.dart';
 
+// Feature pages
+import 'package:vero360_app/Accomodation.dart';
 import 'package:vero360_app/Pages/Edu.dart';
 import 'package:vero360_app/Pages/ExchangeRate.dart';
 import 'package:vero360_app/Pages/MobileMoney.dart';
@@ -9,6 +10,8 @@ import 'package:vero360_app/Pages/More.dart';
 import 'package:vero360_app/Pages/Taxi.dart';
 import 'package:vero360_app/Pages/food.dart';
 import 'package:vero360_app/Pages/utility.dart';
+
+// Latest arrivals
 import 'package:vero360_app/models/Latest_model.dart';
 import 'package:vero360_app/services/latest_Services.dart';
 
@@ -24,11 +27,8 @@ class AppColors {
   static const bgBottom = Color(0xFFFFFFFF);
 }
 
-/// ─────────────────────────────────────────────
-/// SECTION HEADER GAPS (tweak these numbers)
-/// ─────────────────────────────────────────────
-const double kGapAfterQuickServices = 6; // <-- adjust gap under "Discover our Quick Services"
-const double kGapAfterNearby = 6;        // <-- adjust gap under "Best Places Nearby"
+/// Tunable gaps
+const double kGapAfterNearby = 6;
 
 class Vero360Homepage extends StatefulWidget {
   final String email;
@@ -36,16 +36,6 @@ class Vero360Homepage extends StatefulWidget {
   @override
   State<Vero360Homepage> createState() => _Vero360HomepageState();
 }
-
-String _firstNameFromEmail(String? e) {
-  if (e == null) return 'there';
-  final t = e.trim();
-  if (t.isEmpty) return 'there';
-  final base = t.contains('@') ? t.split('@').first : t;
-  return base.isEmpty ? 'there' : (base[0].toUpperCase() + base.substring(1));
-}
-
-
 
 class _Vero360HomepageState extends State<Vero360Homepage> {
   final _search = TextEditingController();
@@ -80,7 +70,7 @@ class _Vero360HomepageState extends State<Vero360Homepage> {
       bg: Color(0xFFFFF4E6),
       tint: AppColors.brandOrange,
       cta: 'Order now',
-      serviceKey: 'food', // or 'courier' if you prefer courier flow
+      serviceKey: 'food',
     ),
     _Promo(
       title: 'Vero Ride ',
@@ -94,13 +84,13 @@ class _Vero360HomepageState extends State<Vero360Homepage> {
     ),
     _Promo(
       title: 'Vero AI ',
-      subtitle:'Ask VeroAI anything',
-      code: 'Use code FREECHAT',
+      subtitle: 'Ask VeroAI',
+      code: 'anything,anytime',
       image: 'assets/veroai.png',
       bg: Color(0xFFFFF4E6),
       tint: AppColors.brandOrange,
       cta: 'Chat now',
-      serviceKey: 'Vero Chat', // matches switch-case key
+      serviceKey: 'Vero Chat',
     ),
   ];
 
@@ -134,7 +124,7 @@ class _Vero360HomepageState extends State<Vero360Homepage> {
         child: CustomScrollView(
           physics: const BouncingScrollPhysics(),
           slivers: [
-            // Top section
+            // Top: brand + search
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(16, 79, 16, 0),
@@ -160,31 +150,46 @@ class _Vero360HomepageState extends State<Vero360Homepage> {
                 child: _PromoCarousel(
                   promos: _promos,
                   onIndex: (i) => setState(() => _promoIndex = i),
-                  onTap: _onPromoTap, // NEW
+                  onTap: _onPromoTap,
                 ),
               ),
             ),
             SliverToBoxAdapter(child: _Dots(count: _promos.length, index: _promoIndex)),
-            const SliverToBoxAdapter(child: SizedBox(height: 18)),
 
-            // Quick strip
+            // Space so Quick Services doesn't collide with chips
+            const SliverToBoxAdapter(child: SizedBox(height: 22)),
+
+            // Chips (Lightning deals etc.)
             const SliverToBoxAdapter(child: _QuickStrip()),
-            const SliverToBoxAdapter(child: SizedBox(height: 20)),
 
-            // Services — unified grid
+            // Extra breathing room before Quick Services
+            const SliverToBoxAdapter(child: SizedBox(height: 25)),
+
+            // ==== ONE CARD: QUICK SERVICES ====
             SliverToBoxAdapter(
-              child: _Section(
-                title: 'Discover our Quick Services',
-                tight: true,
-                gapAfterTitle: kGapAfterQuickServices, // tiny adjustable gap here
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: _UnifiedServicesGrid(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                child: _SectionCard(
+                  title: 'Discover our Quick Services',
+                  child: _MiniIconsGrid(
+                    items: const [
+                      // Transport
+                      Mini('taxi',          ' Vero ride/Taxi', Icons.local_taxi_rounded),
+                      Mini('airport_pickup','Airport pickup',   Icons.flight_takeoff_rounded),
+                      Mini('courier',       'Vero courier',     Icons.local_shipping_rounded),
+                      Mini('vero_bike',     'Vero bike',        Icons.pedal_bike_rounded),
+                      Mini('car_hire',      'Car hire',         Icons.directions_car_rounded),
+                      // Financial
+                      Mini('mobile_money', 'Vero pay',          Icons.account_balance_wallet_rounded),
+                      Mini('fx',           'Exchange rate',     Icons.currency_exchange_rounded),
+                    ],
                     onOpen: (key) => _Vero360HomepageState._openServiceStatic(context, key),
                   ),
                 ),
               ),
             ),
+
+            const SliverToBoxAdapter(child: SizedBox(height: 22)),
 
             // Near you
             const SliverToBoxAdapter(child: _NearYouCarousel()),
@@ -227,46 +232,45 @@ class _Vero360HomepageState extends State<Vero360Homepage> {
     Widget page;
     switch (key) {
       case 'food':
-        page = FoodPage();
-        break;
       case 'grocery':
         page = FoodPage();
         break;
+
       case 'courier':
-        page = const UtilityPage();
+        page = const UtilityPage(); // replace when you have a dedicated Courier page
         break;
+
       case 'taxi':
-        page = const TaxiPage();
+      case 'airport_pickup':
+      case 'vero_bike':
+      case 'car_hire':
+        page = const TaxiPage(); // reuse Taxi flow for now
         break;
+
       case 'send_money':
+      case 'mobile_money':
         page = const MobilemoneyPage();
         break;
+
       case 'home_cleaning':
-        page = const UtilityPage();
-        break;
-      case 'Vero Chat':
-        page = const EducationPage();
-        break;
       case 'hospital':
         page = const UtilityPage();
         break;
-      case 'gym':
-      case 'barbershop':
-      case 'salon':
-      case 'Hair Salon':
-        page = const MorePage();
+
+      case 'Vero Chat':
+        page = const EducationPage();
         break;
+
       case 'hostels':
       case 'hotels':
       case 'accommodation':
         page = const AccomodationPage();
         break;
-      case 'mobile_money':
-        page = const MobilemoneyPage();
-        break;
+
       case 'fx':
         page = const ExchangeRateScreen();
         break;
+
       default:
         page = const MorePage();
     }
@@ -414,12 +418,12 @@ class _TopSection extends StatelessWidget {
   }
 }
 
-/// Promo + carousel plumbing
+/// Promo model
 class _Promo {
   final String title, subtitle, code, image;
   final Color bg, tint;
-  final String cta;          // dynamic button label
-  final String? serviceKey;  // maps to _openServiceStatic switch
+  final String cta;
+  final String? serviceKey;
 
   const _Promo({
     required this.title,
@@ -433,10 +437,11 @@ class _Promo {
   });
 }
 
+/// Promo carousel
 class _PromoCarousel extends StatelessWidget {
   final List<_Promo> promos;
   final ValueChanged<int> onIndex;
-  final void Function(_Promo) onTap; // handler from parent
+  final void Function(_Promo) onTap;
 
   const _PromoCarousel({
     required this.promos,
@@ -551,6 +556,7 @@ class _PromoCarousel extends StatelessWidget {
   }
 }
 
+/// Dots for carousels
 class _Dots extends StatelessWidget {
   final int count, index;
   const _Dots({required this.count, required this.index});
@@ -578,7 +584,7 @@ class _Dots extends StatelessWidget {
   }
 }
 
-/// Quick chips strip
+/// Chips strip
 class _QuickStrip extends StatelessWidget {
   const _QuickStrip();
   @override
@@ -613,152 +619,131 @@ class _QuickStrip extends StatelessWidget {
   }
 }
 
-/// UNIFIED grid (quick + super-app) — no vertical gaps between rows
-class _UnifiedServicesGrid extends StatelessWidget {
-  final void Function(String key) onOpen;
-  const _UnifiedServicesGrid({required this.onOpen});
+/* ───────────────────────────────────────────
+   MINI ICONS (one card: Quick Services)
+─────────────────────────────────────────── */
+
+class Mini {
+  final String keyId;
+  final String label;
+  final IconData icon;
+  const Mini(this.keyId, this.label, this.icon);
+}
+
+class _SectionCard extends StatelessWidget {
+  final String title;
+  final Widget child;
+  const _SectionCard({required this.title, required this.child});
 
   @override
   Widget build(BuildContext context) {
-    final items = <_ServiceLite>[
-      // Quick services
-      _ServiceLite('food', 'Food', '15 min', 'assets/Queens-Tavern-Steak.jpg', Icons.fastfood_rounded),
-      _ServiceLite('taxi', 'Vero Ride', '15 min','assets/uber-cabs-1024x576.webp', Icons.local_taxi_rounded),
-      _ServiceLite('mobile_money', 'Vero Pay', '—', 'assets/veropay.png', Icons.account_balance_wallet_rounded),
-      _ServiceLite('accommodation', 'Accommodation', '15 min','assets/accomodation.webp', Icons.bed_rounded),
-      _ServiceLite('Vero Chat', 'Vero Chat', '—', 'assets/chat.png', Icons.chat),
-      _ServiceLite('fx', 'Exchange Rate', '—', 'assets/exchange.png', Icons.currency_exchange_rounded),
-      _ServiceLite('home_cleaning', 'Home Cleaning', '18 min','assets/homecleaning.png', Icons.cleaning_services_rounded),
-      _ServiceLite('hospital', 'Hospital', '10 min','assets/hospital.png', Icons.local_hospital_rounded),
-      // Super-app items (continue same grid)
-      _ServiceLite('gym', 'Gym', '—', 'assets/gym.jpg', Icons.fitness_center_rounded),
-      _ServiceLite('Hair Salon', 'Hair Salon', '—', 'assets/barber.webp', Icons.content_cut_rounded),
-      _ServiceLite('courier', 'vero Courier', '—', 'assets/vero_courier.png', Icons.local_shipping_rounded),
-    ];
-
-    final w = MediaQuery.of(context).size.width;
-    final ratio = w > 700 ? 1.35 : w > 520 ? 1.32 : 1.28;
-
-    return _ResponsiveGrid(
-      items: items,
-      onOpen: onOpen,
-      childAspectRatio: ratio,
-      mainAxisSpacing: 0,
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: AppColors.card,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.brandOrangeSoft.withOpacity(0.55)),
+        boxShadow: const [
+          BoxShadow(color: Color(0x14000000), blurRadius: 8, offset: Offset(0, 2)),
+        ],
+      ),
+      padding: const EdgeInsets.fromLTRB(4, 2, 4, 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title,
+              style: const TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w900,
+                color: AppColors.title,
+              )),
+          const SizedBox(height: 1),
+          child,
+        ],
+      ),
     );
   }
 }
 
-/// Shared grid
-class _ResponsiveGrid extends StatelessWidget {
-  final List<_ServiceLite> items;
+class _MiniIconsGrid extends StatelessWidget {
+  final List<Mini> items;
   final void Function(String key) onOpen;
-  final double childAspectRatio;
-  final double mainAxisSpacing;
-  const _ResponsiveGrid({
-    required this.items,
-    required this.onOpen,
-    required this.childAspectRatio,
-    this.mainAxisSpacing = 0,
-  });
+  const _MiniIconsGrid({required this.items, required this.onOpen});
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(builder: (context, c) {
-      final cross = c.maxWidth > 700 ? 4 : c.maxWidth > 520 ? 3 : 2;
+    // Defensive layout to avoid pixel overflow on very narrow screens
+    return LayoutBuilder(builder: (ctx, c) {
+      final w = c.maxWidth;
+      final cross = w < 320 ? 3 : (w < 560 ? 4 : (w < 760 ? 5 : 6));
+      // Slightly taller tiles reduce risk of vertical overflow (icon + 2-line label)
+      final ratio = w < 340 ? 0.82 : 0.9;
+
       return GridView.builder(
         shrinkWrap: true,
         physics: const NeverScrollableScrollPhysics(),
-        padding: EdgeInsets.zero,
         itemCount: items.length,
         gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: cross,
-          crossAxisSpacing: 10,
-          mainAxisSpacing: mainAxisSpacing,
-          childAspectRatio: childAspectRatio,
+          crossAxisSpacing: 12,
+          mainAxisSpacing: 8,
+          childAspectRatio: ratio,
         ),
-        itemBuilder: (_, i) => _ServiceLiteTile(
-          item: items[i],
-          onTap: () => onOpen(items[i].keyId),
-        ),
+        itemBuilder: (_, i) {
+          final m = items[i];
+          return _MiniIconTile(
+            icon: m.icon,
+            label: m.label,
+            onTap: () => onOpen(m.keyId),
+          );
+        },
       );
     });
   }
 }
 
-class _ServiceLite {
-  final String keyId, title, eta, image;
+class _MiniIconTile extends StatelessWidget {
   final IconData icon;
-  _ServiceLite(this.keyId, this.title, this.eta, this.image, this.icon);
-}
-
-class _ServiceLiteTile extends StatefulWidget {
-  final _ServiceLite item;
+  final String label;
   final VoidCallback onTap;
-  const _ServiceLiteTile({required this.item, required this.onTap});
-  @override
-  State<_ServiceLiteTile> createState() => _ServiceLiteTileState();
-}
-
-class _ServiceLiteTileState extends State<_ServiceLiteTile> {
-  bool _pressed = false;
+  const _MiniIconTile({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final item = widget.item;
-    return AnimatedScale(
-      scale: _pressed ? 0.98 : 1.0,
-      duration: const Duration(milliseconds: 120),
-      child: Material(
-        color: Colors.transparent,
-        child: Ink(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: AppColors.brandOrangeSoft.withOpacity(0.8)),
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            width: 56,
+            height: 56,
+            decoration: BoxDecoration(
+              color: AppColors.brandOrangePale,                    // soft orange fill
+              shape: BoxShape.circle,
+              border: Border.all(color: AppColors.brandOrangeSoft), // subtle orange outline
+            ),
+            child: Icon(icon, size: 26, color: AppColors.title),
           ),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(14),
-            onTap: widget.onTap,
-            onHighlightChanged: (v) => setState(() => _pressed = v),
-            child: Padding(
-              padding: const EdgeInsets.all(10),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      if (item.eta != '—')
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                          decoration: BoxDecoration(
-                            color: AppColors.brandOrangePale,
-                            borderRadius: BorderRadius.circular(9),
-                            border: Border.all(color: AppColors.brandOrangeSoft),
-                          ),
-                          child: Text(item.eta, style: const TextStyle(fontWeight: FontWeight.w800, color: AppColors.body, fontSize: 10)),
-                        ),
-                      const Spacer(),
-                      Icon(item.icon, size: 16, color: AppColors.title),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Center(
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxHeight: 56, maxWidth: 100),
-                      child: item.image.isEmpty
-                          ? Icon(item.icon, size: 42, color: AppColors.brandOrange)
-                          : Image.asset(item.image, height: 56, fit: BoxFit.contain,
-                              errorBuilder: (_, __, ___) => Icon(item.icon, size: 42, color: AppColors.brandOrange)),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(item.title, maxLines: 1, overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w900, color: AppColors.title)),
-                ],
-              ),
+          const SizedBox(height: 6),
+          Text(
+            label,
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            softWrap: false,
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: AppColors.title,
             ),
           ),
-        ),
+        ],
       ),
     );
   }
@@ -786,7 +771,7 @@ class _NearYouCarouselState extends State<_NearYouCarousel> {
     return _Section(
       title: 'Best Places Nearby',
       tight: true,
-      gapAfterTitle: kGapAfterNearby, // <-- tiny adjustable gap here
+      gapAfterTitle: kGapAfterNearby,
       action: TextButton(
         onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('See all tapped')),
@@ -929,7 +914,7 @@ class _LatestArrivalsSectionState extends State<LatestArrivalsSection> {
               if (snap.hasError) {
                 return Padding(
                   padding: const EdgeInsets.symmetric(vertical: 24),
-                  child: Center(child: Text('Could not load arrivals.\n${snap.error}', textAlign: TextAlign.center, style: const TextStyle(color: Colors.red))),
+                  child: Center(child: Text('Could not load arrivals.\n${snap.error}', textAlign: TextAlign.center, style: TextStyle(color: Colors.red))),
                 );
               }
 
@@ -1059,21 +1044,20 @@ class _ProductCardFromApi extends StatelessWidget {
   }
 }
 
-/// Section wrapper — when `tight: true`, we put zero bottom padding on the header
-/// and insert a small SizedBox you can tune via `gapAfterTitle`.
+/// Generic section wrapper (used by other sections)
 class _Section extends StatelessWidget {
   final String title;
   final Widget child;
   final Widget? action;
   final bool tight;
-  final double gapAfterTitle; // <-- adjustable gap right under the title
+  final double gapAfterTitle;
 
   const _Section({
     required this.title,
     required this.child,
     this.action,
     this.tight = false,
-    this.gapAfterTitle = 0, // default no extra gap unless you pass a value
+    this.gapAfterTitle = 0,
   });
 
   @override
@@ -1084,7 +1068,6 @@ class _Section extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            // when tight, no bottom padding — the gap below is controlled by gapAfterTitle
             padding: EdgeInsets.fromLTRB(16, tight ? 0 : 10, 16, 0),
             child: Row(
               children: [
@@ -1101,7 +1084,7 @@ class _Section extends StatelessWidget {
               ],
             ),
           ),
-          SizedBox(height: gapAfterTitle), // <-- adjust gap here (uses the constants above)
+          SizedBox(height: gapAfterTitle),
           child,
         ],
       ),

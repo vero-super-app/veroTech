@@ -34,13 +34,13 @@ Future<void> main() async {
   try {
     await Firebase.initializeApp(
       options: const FirebaseOptions(
-        apiKey: "AIzaSyCWFa4tCHalRUqPkmfxVtrAbcXkC9negA8",
-        authDomain: "superapp-c7cdb.firebaseapp.com",
-        projectId: "superapp-c7cdb",
-        storageBucket: "superapp-c7cdb.appspot.com",
-        messagingSenderId: "802147518690",
-        appId: "1:802147518690:android:a2d203d3708083dfc8f6bb",
-        measurementId: "",
+        apiKey: "AIzaSyCQ5_4N2J_xwKqmY-lAa8-ifRxovoRTTYk",
+        authDomain: "vero360app-ca423.firebaseapp.com",
+        projectId: "vero360app-ca423",
+        storageBucket: "vero360app-ca423.firebasestorage.app",
+        messagingSenderId: " 1010595167807",
+        appId: "1:1010595167807:android:f63d7c7959bdb2891dc28a",
+        measurementId: "509938238",
       ),
     );
   } catch (_) {}
