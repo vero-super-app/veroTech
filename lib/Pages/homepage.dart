@@ -45,10 +45,21 @@ String _firstNameFromEmail(String? e) {
   return base.isEmpty ? 'there' : (base[0].toUpperCase() + base.substring(1));
 }
 
+
+
 class _Vero360HomepageState extends State<Vero360Homepage> {
   final _search = TextEditingController();
   int _promoIndex = 0;
   bool _animateIn = false;
+
+  String _firstNameFromEmail(String email) {
+    final user = email.split('@').first;
+    if (user.isEmpty) return 'there';
+    final cleaned = user.replaceAll(RegExp(r'[^a-zA-Z]'), ' ');
+    final parts = cleaned.trim().split(RegExp(r'\s+'));
+    final first = parts.isNotEmpty ? parts.first : 'there';
+    return '${first[0].toUpperCase()}${first.substring(1).toLowerCase()}';
+  }
 
   final List<_Promo> _promos = const [
     _Promo(
@@ -58,6 +69,8 @@ class _Vero360HomepageState extends State<Vero360Homepage> {
       image: 'assets/happy.jpg',
       bg: Color(0xFFFDF2E9),
       tint: AppColors.brandOrange,
+      cta: 'Order now',
+      serviceKey: 'food',
     ),
     _Promo(
       title: 'Free Delivery',
@@ -66,6 +79,8 @@ class _Vero360HomepageState extends State<Vero360Homepage> {
       image: 'assets/Queens-Tavern-Steak.jpg',
       bg: Color(0xFFFFF4E6),
       tint: AppColors.brandOrange,
+      cta: 'Order now',
+      serviceKey: 'food', // or 'courier' if you prefer courier flow
     ),
     _Promo(
       title: 'Vero Ride ',
@@ -74,6 +89,18 @@ class _Vero360HomepageState extends State<Vero360Homepage> {
       image: 'assets/uber-cabs-1024x576.webp',
       bg: Color(0xFFFFF0E1),
       tint: AppColors.brandOrange,
+      cta: 'Book a ride',
+      serviceKey: 'taxi',
+    ),
+    _Promo(
+      title: 'Vero AI ',
+      subtitle:'Ask VeroAI anything',
+      code: 'Use code FREECHAT',
+      image: 'assets/veroai.png',
+      bg: Color(0xFFFFF4E6),
+      tint: AppColors.brandOrange,
+      cta: 'Chat now',
+      serviceKey: 'Vero Chat', // matches switch-case key
     ),
   ];
 
@@ -133,6 +160,7 @@ class _Vero360HomepageState extends State<Vero360Homepage> {
                 child: _PromoCarousel(
                   promos: _promos,
                   onIndex: (i) => setState(() => _promoIndex = i),
+                  onTap: _onPromoTap, // NEW
                 ),
               ),
             ),
@@ -148,7 +176,7 @@ class _Vero360HomepageState extends State<Vero360Homepage> {
               child: _Section(
                 title: 'Discover our Quick Services',
                 tight: true,
-                gapAfterTitle: kGapAfterQuickServices, // <-- tiny adjustable gap here
+                gapAfterTitle: kGapAfterQuickServices, // tiny adjustable gap here
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   child: _UnifiedServicesGrid(
@@ -167,10 +195,10 @@ class _Vero360HomepageState extends State<Vero360Homepage> {
             const SliverToBoxAdapter(child: SizedBox(height: 12)),
 
             // Latest arrivals
-            SliverToBoxAdapter(
+            const SliverToBoxAdapter(
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(10, 12, 16, 16),
-                child: const LatestArrivalsSection(),
+                padding: EdgeInsets.fromLTRB(10, 12, 16, 16),
+                child: LatestArrivalsSection(),
               ),
             ),
           ],
@@ -183,6 +211,16 @@ class _Vero360HomepageState extends State<Vero360Homepage> {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Search location tapped')),
     );
+  }
+
+  void _onPromoTap(_Promo p) {
+    if (p.serviceKey != null && p.serviceKey!.isNotEmpty) {
+      _Vero360HomepageState._openServiceStatic(context, p.serviceKey!);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Coming soon')),
+      );
+    }
   }
 
   static void _openServiceStatic(BuildContext context, String key) {
@@ -268,7 +306,7 @@ class _BrandBar extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 10),
-        Text('Vero360', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: AppColors.title)),
+        Text(appName, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: AppColors.title)),
         const Spacer(),
         IconButton(
           visualDensity: VisualDensity.compact,
@@ -380,13 +418,32 @@ class _TopSection extends StatelessWidget {
 class _Promo {
   final String title, subtitle, code, image;
   final Color bg, tint;
-  const _Promo({required this.title, required this.subtitle, required this.code, required this.image, required this.bg, required this.tint});
+  final String cta;          // dynamic button label
+  final String? serviceKey;  // maps to _openServiceStatic switch
+
+  const _Promo({
+    required this.title,
+    required this.subtitle,
+    required this.code,
+    required this.image,
+    required this.bg,
+    required this.tint,
+    this.cta = 'Order now',
+    this.serviceKey,
+  });
 }
 
 class _PromoCarousel extends StatelessWidget {
   final List<_Promo> promos;
   final ValueChanged<int> onIndex;
-  const _PromoCarousel({required this.promos, required this.onIndex});
+  final void Function(_Promo) onTap; // handler from parent
+
+  const _PromoCarousel({
+    required this.promos,
+    required this.onIndex,
+    required this.onTap,
+  });
+
   @override
   Widget build(BuildContext context) {
     return CarouselSlider.builder(
@@ -404,7 +461,11 @@ class _PromoCarousel extends StatelessWidget {
           borderRadius: BorderRadius.circular(18),
           child: Container(
             decoration: BoxDecoration(
-              gradient: LinearGradient(colors: [p.bg, Colors.white], begin: const Alignment(-0.6, -1), end: const Alignment(1, 1)),
+              gradient: LinearGradient(
+                colors: [p.bg, Colors.white],
+                begin: const Alignment(-0.6, -1),
+                end: const Alignment(1, 1),
+              ),
               border: Border.all(color: AppColors.brandOrangeSoft),
             ),
             child: Stack(
@@ -413,7 +474,10 @@ class _PromoCarousel extends StatelessWidget {
                 Align(
                   alignment: Alignment.centerRight,
                   child: ClipRRect(
-                    borderRadius: const BorderRadius.only(topLeft: Radius.circular(18), bottomLeft: Radius.circular(18)),
+                    borderRadius: const BorderRadius.only(
+                      topLeft: Radius.circular(18),
+                      bottomLeft: Radius.circular(18),
+                    ),
                     child: Image.asset(
                       p.image,
                       width: 180,
@@ -422,7 +486,9 @@ class _PromoCarousel extends StatelessWidget {
                       errorBuilder: (_, __, ___) => Container(
                         width: 180,
                         color: const Color(0xFFEDEDED),
-                        child: const Center(child: Icon(Icons.image_not_supported_rounded)),
+                        child: const Center(
+                          child: Icon(Icons.image_not_supported_rounded),
+                        ),
                       ),
                     ),
                   ),
@@ -432,21 +498,46 @@ class _PromoCarousel extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(p.title, style: TextStyle(color: p.tint, fontWeight: FontWeight.w900, fontSize: 18)),
+                      Text(
+                        p.title,
+                        style: TextStyle(
+                          color: p.tint,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 18,
+                        ),
+                      ),
                       const SizedBox(height: 2),
-                      Text(p.subtitle, style: const TextStyle(color: AppColors.title, fontWeight: FontWeight.w900, fontSize: 16)),
+                      Text(
+                        p.subtitle,
+                        style: const TextStyle(
+                          color: AppColors.title,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 16,
+                        ),
+                      ),
                       const SizedBox(height: 6),
-                      Text(p.code, style: const TextStyle(color: AppColors.body, fontWeight: FontWeight.w700)),
+                      Text(
+                        p.code,
+                        style: const TextStyle(
+                          color: AppColors.body,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
                       const Spacer(),
                       ElevatedButton(
-                        onPressed: () {},
+                        onPressed: () => onTap(p),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppColors.brandOrange,
                           foregroundColor: Colors.white,
                           elevation: 0,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
                         ),
-                        child: const Text('Order now', style: TextStyle(fontWeight: FontWeight.w900)),
+                        child: Text(
+                          p.cta,
+                          style: const TextStyle(fontWeight: FontWeight.w900),
+                        ),
                       ),
                     ],
                   ),

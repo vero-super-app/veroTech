@@ -29,6 +29,12 @@ class _MarketplaceCrudPageState extends State<MarketplaceCrudPage>
   bool _isActive = true;
   bool _submitting = false;
 
+  // Categories must match backend enum values
+  static const List<String> _kCategories = <String>[
+    'food', 'drinks', 'electronics', 'clothes', 'shoes', 'other'
+  ];
+  String? _category = 'other';
+
   final _picker = ImagePicker();
   XFile? _picked;
   Uint8List? _pickedBytes;
@@ -57,7 +63,7 @@ class _MarketplaceCrudPageState extends State<MarketplaceCrudPage>
   Future<void> _loadItems() async {
     setState(() => _loadingItems = true);
     try {
-      final data = await svc.fetchMyItems(); // ONLY my items
+      final data = await svc.fetchMyItems(); // ONLY my items (auth required)
       if (!mounted) return;
       setState(() => _items = data);
     } catch (e) {
@@ -148,6 +154,7 @@ class _MarketplaceCrudPageState extends State<MarketplaceCrudPage>
         image: imageUrl,
         description: _desc.text.trim().isEmpty ? null : _desc.text.trim(),
         isActive: _isActive,
+        category: _category, // include enum value
       );
       await svc.createItem(item);
 
@@ -161,6 +168,7 @@ class _MarketplaceCrudPageState extends State<MarketplaceCrudPage>
       _picked = null;
       _pickedBytes = null;
       _isActive = true;
+      _category = 'other';
       setState(() {});
       await _loadItems();
       _tabs.animateTo(1);
@@ -222,6 +230,7 @@ class _MarketplaceCrudPageState extends State<MarketplaceCrudPage>
                 ),
                 const SizedBox(height: 12),
 
+                // NAME
                 TextFormField(
                   controller: _name,
                   decoration: const InputDecoration(labelText: 'Name', filled: true, border: OutlineInputBorder()),
@@ -229,6 +238,7 @@ class _MarketplaceCrudPageState extends State<MarketplaceCrudPage>
                 ),
                 const SizedBox(height: 12),
 
+                // PRICE
                 TextFormField(
                   controller: _price,
                   keyboardType: const TextInputType.numberWithOptions(decimal: false),
@@ -242,6 +252,26 @@ class _MarketplaceCrudPageState extends State<MarketplaceCrudPage>
                 ),
                 const SizedBox(height: 12),
 
+                // CATEGORY (ENUM DROPDOWN)
+                DropdownButtonFormField<String>(
+                  value: _category,
+                  items: _kCategories
+                      .map((c) => DropdownMenuItem<String>(
+                            value: c,
+                            child: Text(_titleCase(c)),
+                          ))
+                      .toList(),
+                  onChanged: (v) => setState(() => _category = v),
+                  decoration: const InputDecoration(
+                    labelText: 'Category',
+                    filled: true,
+                    border: OutlineInputBorder(),
+                  ),
+                  validator: (v) => (v == null || v.isEmpty) ? 'Please select a category' : null,
+                ),
+                const SizedBox(height: 12),
+
+                // DESCRIPTION
                 TextFormField(
                   controller: _desc,
                   minLines: 2,
@@ -250,6 +280,7 @@ class _MarketplaceCrudPageState extends State<MarketplaceCrudPage>
                 ),
                 const SizedBox(height: 8),
 
+                // ACTIVE
                 SwitchListTile(
                   value: _isActive,
                   onChanged: (v) => setState(() => _isActive = v),
@@ -258,6 +289,7 @@ class _MarketplaceCrudPageState extends State<MarketplaceCrudPage>
                 ),
                 const SizedBox(height: 8),
 
+                // SUBMIT
                 FilledButton.icon(
                   onPressed: canCreate ? _create : null,
                   icon: _submitting
@@ -273,7 +305,7 @@ class _MarketplaceCrudPageState extends State<MarketplaceCrudPage>
     );
   }
 
-  /// ✅ This is the missing Manage tab
+  /// Manage tab
   Widget _buildManageTab() {
     if (_loadingItems) return const Center(child: CircularProgressIndicator());
     if (_items.isEmpty) {
@@ -307,6 +339,11 @@ class _MarketplaceCrudPageState extends State<MarketplaceCrudPage>
         },
       ),
     );
+  }
+
+  String _titleCase(String s) {
+    if (s.isEmpty) return s;
+    return s[0].toUpperCase() + s.substring(1);
   }
 }
 
@@ -396,6 +433,7 @@ class _ItemCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final hasImage = (item.image).toString().trim().isNotEmpty;
+    final cat = (item.category ?? '').isEmpty ? null : item.category;
 
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -416,6 +454,17 @@ class _ItemCard extends StatelessWidget {
                         )
                       : _imgFallback(),
                 ),
+                if (cat != null)
+                  Positioned(
+                    left: 8,
+                    top: 8,
+                    child: Chip(
+                      label: Text(cat[0].toUpperCase() + cat.substring(1)),
+                      backgroundColor: Colors.black.withOpacity(0.75),
+                      labelStyle: const TextStyle(color: Colors.white),
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                    ),
+                  ),
                 Positioned(
                   right: 8,
                   top: 8,

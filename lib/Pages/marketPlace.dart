@@ -1,5 +1,5 @@
+// lib/Pages/MarketPage.dart
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -25,9 +25,14 @@ class MarketPage extends StatefulWidget {
 
 class _MarketPageState extends State<MarketPage> {
   final MarketplaceService marketplaceService = MarketplaceService();
-
   final TextEditingController _searchCtrl = TextEditingController();
   final ImagePicker _picker = ImagePicker();
+
+  // keep in sync with backend: food/drinks/electronics/clothes/shoes/other
+  static const List<String> _kCategories = <String>[
+    'food', 'drinks', 'electronics', 'clothes', 'shoes', 'other'
+  ];
+  String? _selectedCategory; // null = all
 
   Timer? _debounce;
   String _lastQuery = '';
@@ -52,13 +57,14 @@ class _MarketPageState extends State<MarketPage> {
   }
 
   // ---------- Data loaders ----------
-  Future<List<MarketplaceDetailModel>> _loadAll() async {
+  Future<List<MarketplaceDetailModel>> _loadAll({String? category}) async {
     setState(() {
       _loading = true;
       _photoMode = false;
+      _selectedCategory = category;
     });
     try {
-      final items = await marketplaceService.fetchMarketItems();
+      final items = await marketplaceService.fetchMarketItems(category: category);
       return items;
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -67,7 +73,9 @@ class _MarketPageState extends State<MarketPage> {
 
   Future<List<MarketplaceDetailModel>> _searchByName(String raw) async {
     final q = raw.trim();
-    if (q.isEmpty || q.length < 2) return _loadAll();
+    if (q.isEmpty || q.length < 2) {
+      return _loadAll(category: _selectedCategory);
+    }
     setState(() {
       _loading = true;
       _photoMode = false;
@@ -80,11 +88,11 @@ class _MarketPageState extends State<MarketPage> {
     }
   }
 
-  /// ✅ Missing before: search by photo (mobile only)
   Future<List<MarketplaceDetailModel>> _searchByPhoto(File file) async {
     setState(() {
       _loading = true;
       _photoMode = true;
+      _selectedCategory = null; // photo mode ignores category
     });
     try {
       final items = await marketplaceService.searchByPhoto(file);
@@ -94,73 +102,67 @@ class _MarketPageState extends State<MarketPage> {
     }
   }
 
-
-// ...
-
-Future<String?> _readAuthToken() async {
-  final sp = await SharedPreferences.getInstance();
-  for (final k in const ['token', 'jwt_token', 'jwt']) {
-    final v = sp.getString(k);
-    if (v != null && v.isNotEmpty) return v;
-  }
-  return null;
-}
-
-Future<bool> _isLoggedIn() async => (await _readAuthToken()) != null;
-
-// ---------- Cart ----------
-Future<void> _addToCart(MarketplaceDetailModel item, {String? note}) async {
-  // quick visual feedback
- 
-  try {
+  // ---------- Auth helpers ----------
+  Future<String?> _readAuthToken() async {
     final sp = await SharedPreferences.getInstance();
-    final token = sp.getString('token') ?? sp.getString('jwt_token') ?? sp.getString('jwt');
-    if (token == null || token.isEmpty) {
+    for (final k in const ['token', 'jwt_token', 'jwt']) {
+      final v = sp.getString(k);
+      if (v != null && v.isNotEmpty) return v;
+    }
+    return null;
+  }
+
+  Future<bool> _isLoggedIn() async => (await _readAuthToken()) != null;
+
+  // ---------- Cart ----------
+  Future<void> _addToCart(MarketplaceDetailModel item, {String? note}) async {
+    try {
+      final token = await _readAuthToken();
+      if (token == null || token.isEmpty) {
+        ToastHelper.showCustomToast(
+          context,
+          'Please log in to add items to cart.',
+          isSuccess: false,
+          errorMessage: 'Not logged in',
+        );
+        return;
+      }
+
+      final cartItem = CartModel(
+        userId: '0', // not used by backend
+        item: item.id,
+        quantity: 1,
+        name: item.name,
+        image: item.image,
+        price: item.price,
+        description: item.description,
+        comment: note ?? '',
+      );
+
+      await widget.cartService.addToCart(cartItem);
+
       ToastHelper.showCustomToast(
         context,
-        'Please log in to add items to cart.',
-        isSuccess: false,
-        errorMessage: 'Not logged in',
+        '${item.name} added to cart!',
+        isSuccess: true,
+        errorMessage: 'OK',
       );
-      return;
+    } on TimeoutException {
+      ToastHelper.showCustomToast(
+        context,
+        'Server is taking too long. Please try again.',
+        isSuccess: false,
+        errorMessage: 'Timeout',
+      );
+    } catch (e) {
+      ToastHelper.showCustomToast(
+        context,
+        'Failed to add item: $e',
+        isSuccess: false,
+        errorMessage: 'Add to cart failed',
+      );
     }
-
-    final cartItem = CartModel(
-      userId: '0', // ignored by backend; not sent
-      item: item.id,
-      quantity: 1,
-      name: item.name,
-      image: item.image,
-      price: item.price,
-      description: item.description,
-      comment: note ?? '',
-    );
-
-    await widget.cartService.addToCart(cartItem);
-
-    ToastHelper.showCustomToast(
-      context,
-      '${item.name} added to cart!',
-      isSuccess: true,
-      errorMessage: 'OK',
-    );
-  } on TimeoutException {
-    ToastHelper.showCustomToast(
-      context,
-      'Server is taking too long. Please try again.',
-      isSuccess: false,
-      errorMessage: 'Timeout',
-    );
-  } catch (e) {
-    ToastHelper.showCustomToast(
-      context,
-      'Failed to add item: $e',
-      isSuccess: false,
-      errorMessage: 'Add to cart failed',
-    );
   }
-}
-
 
   // ---------- Search handlers ----------
   void _onSearchChanged() {
@@ -178,6 +180,12 @@ Future<void> _addToCart(MarketplaceDetailModel item, {String? note}) async {
     setState(() => _future = _searchByName(value));
   }
 
+  void _setCategory(String? cat) {
+    _searchCtrl.clear();
+    _lastQuery = '';
+    setState(() => _future = _loadAll(category: cat));
+  }
+
   Future<void> _showPhotoPickerSheet() async {
     if (kIsWeb) {
       final XFile? picked = await _picker.pickImage(
@@ -188,7 +196,7 @@ Future<void> _addToCart(MarketplaceDetailModel item, {String? note}) async {
       if (picked == null) return;
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Photo search is best on mobile builds.')),
+        const SnackBar(content: Text('Photo search works best in mobile builds.')),
       );
       return;
     }
@@ -245,7 +253,7 @@ Future<void> _addToCart(MarketplaceDetailModel item, {String? note}) async {
   Future<void> _refresh() async {
     _searchCtrl.clear();
     _lastQuery = '';
-    setState(() => _future = _loadAll());
+    setState(() => _future = _loadAll(category: _selectedCategory));
     await _future;
   }
 
@@ -304,21 +312,27 @@ Future<void> _addToCart(MarketplaceDetailModel item, {String? note}) async {
             ),
           ),
 
-          // Optional categories
+          // Category chips
           SizedBox(
-            height: 40,
+            height: 44,
             child: ListView(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
               scrollDirection: Axis.horizontal,
               children: [
-                _buildCategoryTab(
+                _buildCategoryChip(
                   "All Products",
-                  isSelected: !_photoMode && _searchCtrl.text.isEmpty,
+                  isSelected: _selectedCategory == null && !_photoMode,
+                  onTap: () => _setCategory(null),
                 ),
-                _buildCategoryTab("Food"),
-                _buildCategoryTab("Drinks"),
-                _buildCategoryTab("Electronics"),
-                _buildCategoryTab("Clothes"),
-                _buildCategoryTab("Shoes"),
+                const SizedBox(width: 6),
+                for (final c in _kCategories) ...[
+                  _buildCategoryChip(
+                    _titleCase(c),
+                    isSelected: _selectedCategory == c,
+                    onTap: () => _setCategory(c),
+                  ),
+                  const SizedBox(width: 6),
+                ],
               ],
             ),
           ),
@@ -426,9 +440,11 @@ Future<void> _addToCart(MarketplaceDetailModel item, {String? note}) async {
   }
 
   // ---------- Widgets ----------
-  Widget _buildCategoryTab(String title, {bool isSelected = false}) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8.0),
+  Widget _buildCategoryChip(String title,
+      {required bool isSelected, required VoidCallback onTap}) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(20),
+      onTap: onTap,
       child: Chip(
         label: Text(
           title,
@@ -438,11 +454,13 @@ Future<void> _addToCart(MarketplaceDetailModel item, {String? note}) async {
           ),
         ),
         backgroundColor: isSelected ? Colors.orange : Colors.grey[300],
+        padding: const EdgeInsets.symmetric(horizontal: 10),
       ),
     );
   }
 
   Widget _buildMarketItem(MarketplaceDetailModel item) {
+    final cat = (item.category ?? '').trim();
     return Container(
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
@@ -461,26 +479,45 @@ Future<void> _addToCart(MarketplaceDetailModel item, {String? note}) async {
         children: [
           // Photo
           Expanded(
-            child: ClipRRect(
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(15)),
-              child: Image.network(
-                item.image,
-                fit: BoxFit.cover,
-                width: double.infinity,
-                errorBuilder: (_, __, ___) => Container(
-                  color: Colors.grey[300],
-                  alignment: Alignment.center,
-                  child: const Icon(Icons.broken_image),
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: ClipRRect(
+                    borderRadius:
+                        const BorderRadius.vertical(top: Radius.circular(15)),
+                    child: Image.network(
+                      item.image,
+                      fit: BoxFit.cover,
+                      width: double.infinity,
+                      errorBuilder: (_, __, ___) => Container(
+                        color: Colors.grey[300],
+                        alignment: Alignment.center,
+                        child: const Icon(Icons.broken_image),
+                      ),
+                      loadingBuilder: (context, child, progress) {
+                        if (progress == null) return child;
+                        return Container(
+                          color: Colors.grey[200],
+                          alignment: Alignment.center,
+                          child: const CircularProgressIndicator(strokeWidth: 2),
+                        );
+                      },
+                    ),
+                  ),
                 ),
-                loadingBuilder: (context, child, progress) {
-                  if (progress == null) return child;
-                  return Container(
-                    color: Colors.grey[200],
-                    alignment: Alignment.center,
-                    child: const CircularProgressIndicator(strokeWidth: 2),
-                  );
-                },
-              ),
+                if (cat.isNotEmpty)
+                  Positioned(
+                    left: 8,
+                    top: 8,
+                    child: Chip(
+                      label: Text(_titleCase(cat)),
+                      backgroundColor: Colors.black.withOpacity(0.75),
+                      labelStyle: const TextStyle(color: Colors.white),
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                  ),
+              ],
             ),
           ),
 
@@ -495,13 +532,13 @@ Future<void> _addToCart(MarketplaceDetailModel item, {String? note}) async {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
-                    fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black),
+                      fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black),
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  "MWK ${item.price}",
+                  "MWK ${item.price.toStringAsFixed(0)}",
                   style: const TextStyle(
-                    fontSize: 14, fontWeight: FontWeight.w600, color: Colors.green),
+                      fontSize: 14, fontWeight: FontWeight.w600, color: Colors.green),
                 ),
               ],
             ),
@@ -558,4 +595,7 @@ Future<void> _addToCart(MarketplaceDetailModel item, {String? note}) async {
       ),
     );
   }
+
+  String _titleCase(String s) =>
+      s.isEmpty ? s : (s[0].toUpperCase() + s.substring(1));
 }

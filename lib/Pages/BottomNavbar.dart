@@ -41,8 +41,9 @@ final cartService = CartService('https://vero-backend.onrender.com', apiPrefix: 
     _pages = [
       Vero360Homepage(email: widget.email),
       MarketPage(cartService: cartService),
-      CartPage(cartService: cartService),
       MessagePage(),
+      CartPage(cartService: cartService),
+
       ProfilePage(),
     ];
 
@@ -102,8 +103,8 @@ final cartService = CartService('https://vero-backend.onrender.com', apiPrefix: 
             items: const [
               _NavItemData(icon: Icons.home_rounded, label: "Home"),
               _NavItemData(icon: Icons.store_rounded, label: "Market"),
-              _NavItemData(icon: Icons.shopping_cart_rounded, label: "Cart"),
               _NavItemData(icon: Icons.message_rounded, label: "Messages"),
+              _NavItemData(icon: Icons.shopping_cart_rounded, label: "Cart"),
               _NavItemData(icon: Icons.person_rounded, label: "Profile"),
             ],
             // ORANGE selected pill

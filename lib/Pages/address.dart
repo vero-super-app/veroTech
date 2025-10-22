@@ -14,17 +14,24 @@ class AddressPage extends StatefulWidget {
 class _AddressPageState extends State<AddressPage> {
   late final AddressService _svc;
   late Future<List<Address>> _future;
+  List<Address> _cache = []; // ← local cache for instant render
   String? _defaultId;
 
   final Color _brand = const Color(0xFFFF8A00); // Vero orange
 
-  @override
-  void initState() {
-    super.initState();
-    _svc = AddressService();
-    _future = _svc.getMyAddresses();
-    _loadDefaultId();
-  }
+ @override
+void initState() {
+  super.initState();
+  _svc = AddressService();
+  _future = _svc.getMyAddresses().then((list) {
+    _cache = list;
+    // sync defaultId from server (authoritative)
+    final def = _cache.where((a) => a.isDefault).toList();
+    _defaultId = def.isNotEmpty ? def.first.id : null;
+    return list;
+  });
+  _loadDefaultId(); // optional: keep if you still want local fallback
+}
 
   Future<void> _loadDefaultId() async {
     final prefs = await SharedPreferences.getInstance();
@@ -47,83 +54,121 @@ class _AddressPageState extends State<AddressPage> {
     await _future;
   }
 
-  Future<void> _openCreate() async {
-    final created = await showModalBottomSheet<Address>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _GlassSheet(
-        child: AddressFormSheet(
-          title: 'Add new address',
-          accent: _brand,
-          onSubmit: (payload) => _svc.createAddress(payload),
+Future<void> _openCreate() async {
+  final created = await showModalBottomSheet<Address>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (_) => _GlassSheet(
+      child: AddressFormSheet(
+        title: 'Add new address',
+        accent: _brand,
+        onSubmit: (payload) => _svc.createAddress(payload),
+      ),
+    ),
+  );
+  if (created != null) {
+    // optimistic insert (default on top)
+    setState(() {
+      if (created.isDefault) {
+        _cache = _cache.map((a) => a.copyWith(isDefault: false)).toList();
+        _defaultId = created.id;
+        _cache = [created, ..._cache];
+      } else {
+        _cache = [created, ..._cache];
+      }
+      _future = Future.value(_cache); // make FutureBuilder happy
+    });
+
+    // then reconcile with server
+    try { await _reload(); } catch (_) {}
+    ToastHelper.showCustomToast(context, 'Address created', isSuccess: true, errorMessage: '');
+  }
+}
+
+
+
+Future<void> _openEdit(Address addr) async {
+  final updated = await showModalBottomSheet<Address>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (_) => _GlassSheet(
+      child: AddressFormSheet(
+        title: 'Edit address',
+        initial: AddressPayload(
+          addressType: addr.addressType,
+          city: addr.city,
+          description: addr.description,
         ),
+        accent: _brand,
+        onSubmit: (payload) => _svc.updateAddress(addr.id, payload),
       ),
-    );
-    if (created != null) {
-      ToastHelper.showCustomToast(context, 'Address created', isSuccess: true, errorMessage: '');
-      await _reload();
-    }
+    ),
+  );
+  if (updated != null) {
+    setState(() {
+      _cache = _cache.map((a) => a.id == addr.id ? updated : a).toList();
+      if (updated.isDefault) _defaultId = updated.id;
+      _future = Future.value(_cache);
+    });
+    try { await _reload(); } catch (_) {}
+    ToastHelper.showCustomToast(context, 'Address updated', isSuccess: true, errorMessage: '');
   }
+}
 
-  Future<void> _openEdit(Address addr) async {
-    final updated = await showModalBottomSheet<Address>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _GlassSheet(
-        child: AddressFormSheet(
-          title: 'Edit address',
-          accent: _brand,
-          initial: AddressPayload(
-            addressType: addr.addressType,
-            city: addr.city,
-            description: addr.description,
-          ),
-          onSubmit: (payload) => _svc.updateAddress(addr.id, payload),
+
+
+ Future<void> _confirmDelete(Address addr) async {
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('Delete address'),
+      content: const Text('Are you sure you want to delete this address? This action cannot be undone.'),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: const Text('Cancel'),
         ),
-      ),
-    );
-    if (updated != null) {
-      ToastHelper.showCustomToast(context, 'Address updated', isSuccess: true, errorMessage: '');
-      await _reload();
-    }
+        TextButton(
+          onPressed: () => Navigator.pop(context, true),
+          style: TextButton.styleFrom(foregroundColor: Colors.red),
+          child: const Text('Delete'),
+        ),
+      ],
+    ),
+  );
+  if (ok == true) {
+    await _svc.deleteAddress(addr.id);
+    setState(() {
+      _cache = _cache.where((a) => a.id != addr.id).toList();
+      if (_defaultId == addr.id) _defaultId = _cache.firstWhere((a) => a.isDefault, orElse: () => _cache.isNotEmpty ? _cache.first : addr).id;
+      _future = Future.value(_cache);
+    });
+    try { await _reload(); } catch (_) {}
+    ToastHelper.showCustomToast(context, 'Address deleted', isSuccess: true, errorMessage: '');
   }
+}
 
-  Future<void> _confirmDelete(Address addr) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Delete Address'),
-        content: Text('Delete "${addr.city}"?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: _brand),
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
-    );
-    if (ok == true) {
-      await _svc.deleteAddress(addr.id);
-      ToastHelper.showCustomToast(context, 'Address deleted', isSuccess: true, errorMessage: '');
-      if (_defaultId == addr.id) await _saveDefaultId(null);
-      await _reload();
-    }
-  }
 
-  Future<void> _setDefault(Address a) async {
-    try {
-      await _svc.setDefaultAddress(a.id); // ← server-side mark
-      await _saveDefaultId(a.id);         // ← local persist
-      ToastHelper.showCustomToast(context, 'Default address set', isSuccess: true, errorMessage: '');
-      await _reload();
-    } catch (e) {
-      ToastHelper.showCustomToast(context, 'Failed to set default', isSuccess: false, errorMessage: e.toString());
-    }
+
+
+ Future<void> _setDefault(Address a) async {
+  try {
+    await _svc.setDefaultAddress(a.id);
+    setState(() {
+      _cache = _cache.map((x) => x.copyWith(isDefault: x.id == a.id)).toList();
+      _defaultId = a.id;
+      _future = Future.value(_cache);
+    });
+    try { await _reload(); } catch (_) {}
+    ToastHelper.showCustomToast(context, 'Default address set', isSuccess: true, errorMessage: '');
+  } catch (e) {
+    ToastHelper.showCustomToast(context, 'Failed to set default', isSuccess: false, errorMessage: e.toString());
   }
+}
+
+
 
   @override
   Widget build(BuildContext context) {
@@ -158,9 +203,16 @@ class _AddressPageState extends State<AddressPage> {
               child: FutureBuilder<List<Address>>(
                 future: _future,
                 builder: (context, snap) {
+                  if (snap.connectionState == ConnectionState.done && snap.data != null) {
+  _cache = snap.data!;
+  // keep server default in sync:
+  final def = _cache.where((a) => a.isDefault).toList();
+  _defaultId = def.isNotEmpty ? def.first.id : _defaultId;
+}
+final items = _cache; // ← always render from cache
                   if (snap.connectionState != ConnectionState.done) {
                     return const Center(child: CircularProgressIndicator());
-                  }
+                  } 
                   if (snap.hasError) {
                     return ListView(
                       children: [
@@ -175,7 +227,7 @@ class _AddressPageState extends State<AddressPage> {
                     );
                   }
 
-                  final items = snap.data ?? const <Address>[];
+          
                   if (items.isEmpty) {
                     return ListView(
                       children: [

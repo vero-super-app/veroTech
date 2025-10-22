@@ -1,4 +1,4 @@
-// models/marketplace.model.dart
+// lib/models/marketplace.model.dart
 
 class MarketplaceDetailModel {
   final int id;
@@ -6,15 +6,16 @@ class MarketplaceDetailModel {
   final String image;
   final double price;
   final String description;
+  final String? category; // NEW
 
-  // ── NEW: Seller / Merchant fields (all optional) ────────────────────────────
-  final String? serviceProviderId;        // e.g. "vero12345"
-  final String? sellerBusinessName;       // serviceProvider.businessName
-  final String? sellerOpeningHours;       // "08:00–22:00" or "08:00-22:00"
-  final String? sellerStatus;             // "open" | "closed" | "busy"
+  // Optional seller/merchant fields
+  final String? serviceProviderId;
+  final String? sellerBusinessName;
+  final String? sellerOpeningHours;
+  final String? sellerStatus;
   final String? sellerBusinessDescription;
-  final double? sellerRating;             // 0..5 (or whatever your backend uses)
-  final String? sellerLogoUrl;            // for showing shop logo if you want
+  final double? sellerRating;
+  final String? sellerLogoUrl;
 
   MarketplaceDetailModel({
     required this.id,
@@ -22,6 +23,7 @@ class MarketplaceDetailModel {
     required this.image,
     required this.price,
     required this.description,
+    this.category,
     this.serviceProviderId,
     this.sellerBusinessName,
     this.sellerOpeningHours,
@@ -32,15 +34,9 @@ class MarketplaceDetailModel {
   });
 
   factory MarketplaceDetailModel.fromJson(Map<String, dynamic> json) {
-    // Support various backend shapes:
-    //  - nested: json.serviceProvider / json.merchant / json.seller
-    //  - top-level fallbacks: businessName, openingHours, status, etc.
-    final dynamic nested =
-        json['serviceProvider'] ?? json['merchant'] ?? json['seller'];
-    final Map<String, dynamic>? sp =
-        nested is Map<String, dynamic> ? nested : null;
+    final dynamic nested = json['serviceProvider'] ?? json['merchant'] ?? json['seller'];
+    final Map<String, dynamic>? sp = nested is Map<String, dynamic> ? nested : null;
 
-    // Helpers to read safely
     String? _str(Map<String, dynamic>? m, String k) {
       final v = m?[k];
       if (v == null) return null;
@@ -54,17 +50,12 @@ class MarketplaceDetailModel {
       return double.tryParse(v.toString());
     }
 
-    // Price robust parse
     final priceRaw = json['price'];
-    final price = priceRaw is num
-        ? priceRaw.toDouble()
-        : double.tryParse('${priceRaw ?? 0}') ?? 0.0;
+    final price = priceRaw is num ? priceRaw.toDouble() : double.tryParse('${priceRaw ?? 0}') ?? 0.0;
 
-    // ID robust parse
     final idRaw = json['id'];
     final id = idRaw is int ? idRaw : int.tryParse('$idRaw') ?? 0;
 
-    // Extract seller fields with fallbacks
     final serviceProviderId =
         _str(json, 'serviceProviderId') ??
         _str(json, 'ServiceProviderID') ??
@@ -76,19 +67,13 @@ class MarketplaceDetailModel {
         _str(json, 'merchantBusinessName') ??
         _str(json, 'businessName');
 
-    final sellerOpeningHours =
-        _str(sp, 'openingHours') ?? _str(json, 'openingHours');
-
+    final sellerOpeningHours = _str(sp, 'openingHours') ?? _str(json, 'openingHours');
     final sellerStatus = _str(sp, 'status') ?? _str(json, 'status');
-
     final sellerBusinessDescription =
         _str(sp, 'businessDescription') ?? _str(json, 'businessDescription');
 
-    final sellerRating =
-        _numToDouble(sp?['rating']) ?? _numToDouble(json['merchantRating']);
-
-    final sellerLogoUrl =
-        _str(sp, 'logoUrl') ?? _str(sp, 'logoimage') ?? _str(json, 'logoUrl');
+    final sellerRating = _numToDouble(sp?['rating']) ?? _numToDouble(json['merchantRating']);
+    final sellerLogoUrl = _str(sp, 'logoUrl') ?? _str(sp, 'logoimage') ?? _str(json, 'logoUrl');
 
     return MarketplaceDetailModel(
       id: id,
@@ -96,6 +81,7 @@ class MarketplaceDetailModel {
       image: (json['image'] ?? json['img'] ?? '').toString(),
       price: price,
       description: (json['description'] ?? '').toString(),
+      category: json['category']?.toString(), // NEW
       serviceProviderId: serviceProviderId,
       sellerBusinessName: sellerBusinessName,
       sellerOpeningHours: sellerOpeningHours,
@@ -115,8 +101,11 @@ class MarketplaceItem {
   final String? description;
   final bool isActive;
 
-  // ── OPTIONAL: If your list API returns it, keep it here too ────────────────
+  // Optional, if you surface it
   final String? serviceProviderId;
+
+  // NEW: category sent to backend
+  final String? category; // 'food' | 'drinks' | 'electronics' | 'clothes' | 'shoes' | 'other'
 
   MarketplaceItem({
     this.id,
@@ -126,6 +115,7 @@ class MarketplaceItem {
     this.description,
     this.isActive = true,
     this.serviceProviderId,
+    this.category,
   });
 
   factory MarketplaceItem.fromJson(Map<String, dynamic> json) {
@@ -143,9 +133,8 @@ class MarketplaceItem {
       isActive: (json['isActive'] is bool)
           ? (json['isActive'] as bool)
           : ((json['isActive']?.toString().toLowerCase() ?? '') == 'true'),
-      serviceProviderId: (json['serviceProviderId'] ??
-              json['ServiceProviderID'])
-          ?.toString(),
+      serviceProviderId: (json['serviceProviderId'] ?? json['ServiceProviderID'])?.toString(),
+      category: json['category']?.toString(),
     );
   }
 
@@ -154,7 +143,6 @@ class MarketplaceItem {
     if (v == null) return null;
     final s = v.toString().trim();
     return s.isEmpty ? null : s;
-    // (Resolve to absolute URL in the UI layer using your ApiHost.resolveImg)
   }
 
   Map<String, dynamic> toJson() => {
@@ -165,5 +153,6 @@ class MarketplaceItem {
         'description': description,
         'isActive': isActive,
         if (serviceProviderId != null) 'serviceProviderId': serviceProviderId,
+        if (category != null) 'category': category, // NEW
       };
 }

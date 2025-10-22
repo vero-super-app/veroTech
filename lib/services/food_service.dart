@@ -1,45 +1,156 @@
+// lib/services/food_service.dart
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show File;
 import 'package:http/http.dart' as http;
-import 'package:vero360_app/models/food_model.dart';
 
-import '../models/marketplace.model.dart';
+import 'package:vero360_app/models/food_model.dart';
+import 'package:vero360_app/services/api_config.dart';
+import 'package:http_parser/http_parser.dart';
 
 class FoodService {
-  final String _baseUrl = 'http://127.0.0.1:3000/orders';
+  /// Build `base + path` safely.
+  Uri _buildUri(String base, String path, [Map<String, String>? query]) {
+    final root = Uri.parse(base);
+    final rootPath = root.path.endsWith('/')
+        ? root.path.substring(0, root.path.length - 1)
+        : root.path;
+    final cleanPath = path.startsWith('/') ? path : '/$path';
+    return root.replace(
+      path: '$rootPath$cleanPath',
+      queryParameters: query,
+    );
+  }
 
-  // Fetch list of market items
+  /// GET /marketplace?category=food
   Future<List<FoodModel>> fetchFoodItems() async {
     try {
-      final uri = Uri.parse(_baseUrl);
+      final base = await ApiConfig.readBase();
+      final uri = _buildUri(base, '/marketplace', const {'category': 'food'});
 
-      // Make the HTTP GET request with a timeout to handle network delays
-      final response = await http.get(uri).timeout(const Duration(seconds: 10));
+      final res = await http
+          .get(uri, headers: const {'Accept': 'application/json'})
+          .timeout(const Duration(seconds: 12));
 
-      if (response.statusCode == 200) {
-        List<dynamic> data = jsonDecode(response.body);
-        
-        // Map each item into MarketPlaceModel and return as a list
-        return data.map((json) => FoodModel.fromJson(json as Map<String, dynamic>)).toList();
-      } else {
-        // Log the response status for debugging
-        print('Failed to food f items: ${response.statusCode}');
-        throw Exception('Failed to fetch food items: ${response.statusCode} - ${response.reasonPhrase}');
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        final trimmed = res.body.length > 300 ? '${res.body.substring(0, 300)}…' : res.body;
+        throw Exception('HTTP ${res.statusCode} at $uri • $trimmed');
       }
-    } on http.ClientException catch (e) {
-      // Handle client-side errors (e.g., network issues)
-      print('Client error: $e');
-      throw Exception('Error fetching food items due to client-side issue');
+
+      final decoded = jsonDecode(res.body);
+      final List list = (decoded is Map && decoded['data'] is List)
+          ? (decoded['data'] as List)
+          : (decoded is List ? decoded : const []);
+
+      final out = <FoodModel>[];
+      for (final row in list) {
+        if (row is! Map) continue;
+        try {
+          out.add(FoodModel.fromJson(_adaptMarketplaceToFoodJson(row)));
+        } catch (_) {}
+      }
+      return out;
     } on TimeoutException {
-      // Handle timeout errors
-      print('Error: Request timed out');
-      throw Exception('Request timed out. Please try again later.');
+      throw Exception('Request timed out. Please try again.');
+    } on FormatException catch (e) {
+      throw Exception('Invalid JSON from server: $e');
     } catch (e) {
-      // Handle all other exceptions
-      print('Unexpected error: $e');
-      throw Exception('An unexpected error occurred while fetching food items: $e');
+      throw Exception('Failed to fetch food: $e');
     }
   }
 
-  fetchLatestArrivals() {}
+  /// Text search by FoodName OR RestrauntName (client-side filter over food list).
+  Future<List<FoodModel>> searchFoodByNameOrRestaurant(String query) async {
+    final q = query.trim().toLowerCase();
+    if (q.length < 2) return fetchFoodItems();
+    final all = await fetchFoodItems();
+    return all.where((f) {
+      final n = (f.FoodName).toLowerCase();
+      final r = (f.RestrauntName).toLowerCase();
+      return n.contains(q) || r.contains(q);
+    }).toList();
+  }
+
+  /// Photo search → POST /marketplace/search/photo, then filter to category=food.
+  Future<List<FoodModel>> searchFoodByPhoto(File imageFile) async {
+    try {
+      final base = await ApiConfig.readBase();
+      final uri = _buildUri(base, '/marketplace/search/photo');
+
+      final req = http.MultipartRequest('POST', uri)
+        ..files.add(await http.MultipartFile.fromPath(
+          'photo',
+          imageFile.path,
+          contentType: MediaType('image', 'jpeg'),
+        ));
+
+      final streamed = await req.send();
+      final res = await http.Response.fromStream(streamed);
+
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        final trimmed = res.body.length > 300 ? '${res.body.substring(0, 300)}…' : res.body;
+        throw Exception('HTTP ${res.statusCode} at $uri • $trimmed');
+      }
+
+      final decoded = jsonDecode(res.body);
+      final List list = (decoded is Map && decoded['data'] is List)
+          ? (decoded['data'] as List)
+          : (decoded is List ? decoded : const []);
+
+      final out = <FoodModel>[];
+      for (final row in list) {
+        if (row is! Map) continue;
+        try {
+          final m = _adaptMarketplaceToFoodJson(row);
+          // keep only food category
+          final cat = (m['category'] ?? '').toString().toLowerCase();
+          if (cat == 'food') out.add(FoodModel.fromJson(m));
+        } catch (_) {}
+      }
+      return out;
+    } on TimeoutException {
+      throw Exception('Photo search timed out. Try a smaller image.');
+    } on FormatException catch (e) {
+      throw Exception('Invalid JSON from server: $e');
+    } catch (e) {
+      throw Exception('Photo search failed: $e');
+    }
+  }
+
+  /// Adapter: marketplace → FoodModel JSON
+  Map<String, dynamic> _adaptMarketplaceToFoodJson(Map raw) {
+    String _s(dynamic v) => v?.toString() ?? '';
+    String? _sn(dynamic v) {
+      if (v == null) return null;
+      final s = v.toString().trim();
+      return s.isEmpty ? null : s;
+    }
+
+    final sp = (raw['serviceProvider'] ?? raw['merchant'] ?? raw['seller']);
+    final sellerName = _sn(raw['sellerBusinessName']) ??
+        _sn((sp is Map) ? sp['businessName'] : null) ??
+        _sn(raw['businessName']) ??
+        'Marketplace';
+
+    final pr = raw['price'];
+    final price = (pr is num) ? pr.toDouble() : double.tryParse('${pr ?? 0}') ?? 0.0;
+
+    final img = _sn(raw['image'] ?? raw['img']) ?? '';
+
+    int _id(dynamic v) {
+      if (v is int) return v;
+      if (v is String) return int.tryParse(v) ?? 0;
+      return 0;
+    }
+
+    return <String, dynamic>{
+      'id': _id(raw['id']),
+      'FoodName': _s(raw['name']),
+      'FoodImage': img,
+      'RestrauntName': sellerName ?? 'Marketplace',
+      'price': price,
+      'description': _sn(raw['description']),
+      'category': _sn(raw['category']),
+    };
+  }
 }

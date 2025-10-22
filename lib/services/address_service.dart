@@ -186,38 +186,11 @@ class AddressService {
   /// Mark one address as default. If your backend has
   /// `POST /addresses/:id/default` use that instead.
   Future<void> setDefaultAddress(String id) async {
-    // Fetch once to know current values, avoid wiping fields.
-    final addresses = await getMyAddresses();
-    final target = addresses.firstWhere(
-      (a) => a.id == id,
-      orElse: () => throw Exception('Address not found'),
-    );
+  final base = await _readBase();
+  final h = await _authHeaders();
+  final u = Uri.parse('$base/addresses/$id/default');
 
-    // 1) Set chosen as default
-    await updateAddress(
-      id,
-      AddressPayload(
-        addressType: target.addressType,
-        city: target.city,
-        description: target.description,
-        isDefault: true,
-      ),
-    );
-
-    // 2) If others were default, clear them (if server doesn't auto-clear)
-    for (final a in addresses) {
-      if (a.id == id) continue;
-      if (a.isDefault) {
-        await updateAddress(
-          a.id,
-          AddressPayload(
-            addressType: a.addressType,
-            city: a.city,
-            description: a.description,
-            isDefault: false,
-          ),
-        );
-      }
-    }
-  }
+  final r = await _sendWithRetry(() => http.post(u, headers: h));
+  if (r.statusCode < 200 || r.statusCode >= 300) _handleBad(r);
+}
 }

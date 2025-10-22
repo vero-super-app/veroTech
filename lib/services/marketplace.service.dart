@@ -14,7 +14,6 @@ class MarketplaceService {
   // ---- auth helpers ----
   Future<String> _token() async {
     final prefs = await SharedPreferences.getInstance();
-    // adjust keys to whatever you save in prefs
     return prefs.getString('jwt_token') ??
            prefs.getString('token') ??
            '';
@@ -39,9 +38,9 @@ class MarketplaceService {
     }
   }
 
-  // ========= SECURED ENDPOINTS (owner enforced server-side) =========
+  // ========= SECURED (owner enforced server-side) =========
 
-  /// CREATE -> POST {base}/marketplace  (requires Bearer token)
+  /// CREATE -> POST {base}/marketplace
   Future<MarketplaceDetailModel> createItem(MarketplaceItem item) async {
     final base = await ApiConfig.readBase();
     final token = await _token();
@@ -59,9 +58,9 @@ class MarketplaceService {
     final body = _decodeOrThrow(r, where: 'POST $uri');
     final data = (body is Map ? (body['data'] ?? body) : body) as Map<String, dynamic>;
     return MarketplaceDetailModel.fromJson(data);
-  }
+    }
 
-  /// DELETE -> DELETE {base}/marketplace/:id  (requires Bearer token; server checks ownership)
+  /// DELETE -> DELETE {base}/marketplace/:id
   Future<void> deleteItem(int id) async {
     final base = await ApiConfig.readBase();
     final token = await _token();
@@ -73,7 +72,7 @@ class MarketplaceService {
     }
   }
 
-  /// Upload -> POST {base}/uploads (multipart "file") => {url}  (requires Bearer token)
+  /// Upload -> POST {base}/uploads (multipart "file") => {url}
   Future<String> uploadImageFile(File imageFile, {String filename = 'upload.jpg'}) async {
     final base = await ApiConfig.readBase();
     final token = await _token();
@@ -96,7 +95,7 @@ class MarketplaceService {
     return url;
   }
 
-  /// ONLY MINE -> GET {base}/marketplace/me (requires Bearer token)
+  /// ONLY MINE -> GET {base}/marketplace/me
   Future<List<MarketplaceDetailModel>> fetchMyItems() async {
     try {
       final base = await ApiConfig.readBase();
@@ -117,9 +116,9 @@ class MarketplaceService {
     }
   }
 
-  // ========= PUBLIC (optional storefront) =========
+  // ========= PUBLIC =========
 
-  // Search by photo (public, keep as-is)
+  /// Photo search
   Future<List<MarketplaceDetailModel>> searchByPhoto(File imageFile) async {
     try {
       final base = await ApiConfig.readBase();
@@ -144,7 +143,7 @@ class MarketplaceService {
     }
   }
 
-  // Search by name (public, keep as-is)
+  /// Name search
   Future<List<MarketplaceDetailModel>> searchByName(String name) async {
     try {
       final base = await ApiConfig.readBase();
@@ -163,7 +162,7 @@ class MarketplaceService {
     }
   }
 
-  // Optional read helpers (public)
+  /// Details
   Future<MarketplaceDetailModel?> getItemDetails(int itemId) async {
     try {
       final base = await ApiConfig.readBase();
@@ -179,10 +178,15 @@ class MarketplaceService {
     }
   }
 
-  Future<List<MarketplaceDetailModel>> fetchMarketItems() async {
+  /// List (optionally filtered by category)
+  Future<List<MarketplaceDetailModel>> fetchMarketItems({String? category}) async {
     try {
       final base = await ApiConfig.readBase();
-      final url = Uri.parse('$base/marketplace');
+      final url = Uri.parse(
+        (category == null || category.isEmpty)
+            ? '$base/marketplace'
+            : '$base/marketplace?category=${Uri.encodeComponent(category.toLowerCase())}',
+      );
       final r = await http.get(url);
       final body = _decodeOrThrow(r, where: 'GET $url');
       final list = body is Map ? body['data'] : null;
@@ -196,5 +200,3 @@ class MarketplaceService {
     }
   }
 }
-
-
