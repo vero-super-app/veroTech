@@ -8,12 +8,12 @@ plugins {
 
 android {
     namespace = "com.vero.vero360"
-    compileSdk = 36 
+    compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.vero.vero360"   
-        minSdk = flutter.minSdkVersion      
-        targetSdk = 34                     
+        applicationId = "com.vero.vero360"
+        minSdk = flutter.minSdkVersion   // or 21
+        targetSdk = 36
         versionCode = 10001
         versionName = "1.0.1"
         multiDexEnabled = true
@@ -31,28 +31,23 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            // so `flutter run --release` works without uploading a keystore
+            // allows `flutter run --release` without a keystore
             signingConfig = signingConfigs.getByName("debug")
         }
     }
 
-    // AGP 8.x uses Java 17
+    // AGP 8+ uses Java 17
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions {
-        jvmTarget = "17"
-    }
+    kotlinOptions { jvmTarget = "17" }
 
     packaging {
-        resources {
-            excludes += "/META-INF/{AL2.0,LGPL2.1}"
-        }
+        resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" }
     }
 }
 
-// Flutter plugin config (stays OUTSIDE the android {} block)
 flutter {
     source = "../.."
 }

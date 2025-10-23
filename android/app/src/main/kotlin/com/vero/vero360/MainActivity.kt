@@ -1,4 +1,4 @@
-package com.example.vero360_app
+package com.vero.vero360
 
 import io.flutter.embedding.android.FlutterActivity
 
