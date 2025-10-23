@@ -54,8 +54,16 @@ dependencies:
   jwt_decoder: ^2.0.1
 
 dev_dependencies:
-  flutter_test:
-    sdk: flutter
+  flutter_launcher_icons: ^0.14.4
+
+flutter_icons:
+android: true
+ios: true
+image_path: "assets/icons/logo_mark.png"
+
+
+flutter_test:
+  sdk: flutter
   flutter_lints: ^5.0.0
   firebase_auth_mocks: ^0.14.1
 

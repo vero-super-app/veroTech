@@ -7,37 +7,31 @@ plugins {
 }
 
 android {
-    namespace = "com.example.verotech_app"
-
-    // Match your plugins’ requirement
-    compileSdk = 36
+    namespace = "com.vero.vero360"
+    compileSdk = 36 
 
     defaultConfig {
-        applicationId = "com.example.verotech_app"
-        minSdk = flutter.minSdkVersion
-        targetSdk = 36
-
-        // Keep Flutter-managed versions
-        versionCode = flutter.versionCode
-        versionName = flutter.versionName
+        applicationId = "com.vero.vero360"   
+        minSdk = flutter.minSdkVersion      
+        targetSdk = 34                     
+        versionCode = 10001
+        versionName = "1.0.1"
+        multiDexEnabled = true
     }
 
     buildTypes {
         debug {
-            // 🔴 Never shrink resources in debug
             isMinifyEnabled = false
             isShrinkResources = false
         }
         release {
-            // ✅ Required pair: enable both together
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-
-            // For convenience so `flutter run --release` works without a keystore
+            // so `flutter run --release` works without uploading a keystore
             signingConfig = signingConfigs.getByName("debug")
         }
     }
@@ -47,13 +41,18 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions { jvmTarget = "17" }
+    kotlinOptions {
+        jvmTarget = "17"
+    }
 
     packaging {
-        resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        resources {
+            excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
     }
 }
 
+// Flutter plugin config (stays OUTSIDE the android {} block)
 flutter {
     source = "../.."
 }
