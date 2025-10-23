@@ -3,7 +3,6 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/widgets.dart';
-import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -18,8 +17,8 @@ class AuthService {
   static const _otpVerifyPath  = '/auth/otp/verify';
 
   // ===== Tunables =====
-  static const Duration _netTimeout    = Duration(seconds: 12);
-  static const Duration _otpCooldown   = Duration(seconds: 45);
+  static const Duration _netTimeout  = Duration(seconds: 12);
+  static const Duration _otpCooldown = Duration(seconds: 45);
 
   static DateTime? _lastOtpAt;
 
@@ -116,9 +115,9 @@ class AuthService {
       }
 
       if (_is2xx(res.statusCode)) {
-        final data = _safeJson(res.body);
+        final data  = _safeJson(res.body);
         final token = data['access_token'] ?? data['token'];
-        final user = Map<String, dynamic>.from(data['user'] ?? {});
+        final user  = Map<String, dynamic>.from(data['user'] ?? {});
 
         if (token == null || (token is String && token.isEmpty)) {
           _toast(context, 'Login failed: missing token');
@@ -138,9 +137,10 @@ class AuthService {
             .trim();
 
         await prefs.setString('fullName', fullName.isEmpty ? 'Guest User' : fullName);
-        await prefs.setString('name', fullName.isEmpty ? 'Guest User' : fullName);
-        await prefs.setString('phone', (user['phone'] ?? '').toString());
-        await prefs.setString('profilepicture', (user['profilepicture'] ?? user['profilePicture'] ?? '').toString());
+        await prefs.setString('name',     fullName.isEmpty ? 'Guest User' : fullName);
+        await prefs.setString('phone',    (user['phone'] ?? '').toString());
+        await prefs.setString('profilepicture',
+            (user['profilepicture'] ?? user['profilePicture'] ?? '').toString());
 
         _toast(context, 'Logged in successfully', success: true);
         return {'token': token, 'user': user};
@@ -173,7 +173,7 @@ class AuthService {
     }
 
     final base = await _base();
-    final uri = Uri.parse('$base$_otpRequestPath');
+    final uri  = Uri.parse('$base$_otpRequestPath');
 
     Map<String, dynamic> body;
     if (channel == 'email') {
@@ -191,6 +191,7 @@ class AuthService {
     }
 
     try {
+      debugPrint('OTP URL => $uri');
       final res = await http
           .post(uri, headers: _jsonHeaders(), body: jsonEncode(body))
           .timeout(_netTimeout);
@@ -226,7 +227,7 @@ class AuthService {
     required BuildContext context,
   }) async {
     final base = await _base();
-    final uri = Uri.parse('$base$_otpVerifyPath');
+    final uri  = Uri.parse('$base$_otpVerifyPath');
     final isEmail = _isEmail(identifier);
     final payload = <String, dynamic>{
       'channel': isEmail ? 'email' : 'phone',

@@ -8,10 +8,10 @@ class UtilityPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Utilities'),
+        title: const Text('vero courier'),
       ),
       body: const Center(
-        child: Text('utility Page'),
+        child: Text('deliver anything, anywhere with vero courier'),
       ),
     );
   }

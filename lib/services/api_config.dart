@@ -4,9 +4,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 
 class ApiConfig {
-  /// 🔒 Single source of truth (no trailing slash)
-  static const String prod = 'https://vero-backend-1.onrender.com/api';
-  
+  /// 🔒 Single source of truth (NO trailing slash)
+  static const String prod =   'https://vero-backend-1.onrender.com';     ///'http://10.0.2.2:3000';
   static String get prodBase => prod;
 
   static const String _prefsKey = 'api_base';
@@ -28,6 +27,10 @@ class ApiConfig {
 
   /// Alias you can call in main() for clarity.
   static Future<void> useProd() => init();
+
+  /// Kept for compatibility with older code that might call setBase().
+  /// It is a NO-OP that still forces PROD.
+  static Future<void> setBase(String _ignored) => useProd();
 
   /// Build URIs safely (no double slashes).
   static Uri endpoint(String path) {

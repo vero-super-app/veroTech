@@ -173,7 +173,7 @@ class _FoodPageState extends State<FoodPage> {
       backgroundColor: Colors.grey[200],
       appBar: AppBar(
         title: const Text(
-          "Restaurants",
+          "Restaurants & Food",
         ),
         backgroundColor: Colors.white,
         foregroundColor: Colors.black,
@@ -271,7 +271,7 @@ class _FoodPageState extends State<FoodPage> {
                       physics: const AlwaysScrollableScrollPhysics(),
                       children: const [
                         SizedBox(height: 120),
-                        Center(child: Text("No food available")),
+                        Center(child: Text("No food available", style: TextStyle(color: Colors.red))),
                       ],
                     );
                   }
@@ -319,6 +319,8 @@ class _FoodPageState extends State<FoodPage> {
     );
   }
 }
+
+
 
 /* ---------- card widget (fixes pixel overflow) ---------- */
 

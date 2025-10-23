@@ -3,17 +3,20 @@ import 'package:carousel_slider/carousel_slider.dart';
 
 // Feature pages
 import 'package:vero360_app/Accomodation.dart';
+import 'package:vero360_app/Pages/Bike.dart';
 import 'package:vero360_app/Pages/Edu.dart';
 import 'package:vero360_app/Pages/ExchangeRate.dart';
 import 'package:vero360_app/Pages/MobileMoney.dart';
 import 'package:vero360_app/Pages/More.dart';
 import 'package:vero360_app/Pages/Taxi.dart';
 import 'package:vero360_app/Pages/food.dart';
-import 'package:vero360_app/Pages/utility.dart';
+import 'package:vero360_app/Pages/marketPlace.dart';
+import 'package:vero360_app/Pages/verocourier.dart';
 
 // Latest arrivals
 import 'package:vero360_app/models/Latest_model.dart';
 import 'package:vero360_app/services/latest_Services.dart';
+import 'package:vero360_app/services/marketplace.service.dart';
 
 class AppColors {
   static const brandOrange = Color(0xFFFF8A00);
@@ -163,14 +166,14 @@ class _Vero360HomepageState extends State<Vero360Homepage> {
             const SliverToBoxAdapter(child: _QuickStrip()),
 
             // Extra breathing room before Quick Services
-            const SliverToBoxAdapter(child: SizedBox(height: 25)),
+            const SliverToBoxAdapter(child: SizedBox(height: 27)),
 
             // ==== ONE CARD: QUICK SERVICES ====
             SliverToBoxAdapter(
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 7),
                 child: _SectionCard(
-                  title: 'Discover our Quick Services',
+                  title: 'Discover Our Quick Services',
                   child: _MiniIconsGrid(
                     items: const [
                       // Transport
@@ -179,9 +182,17 @@ class _Vero360HomepageState extends State<Vero360Homepage> {
                       Mini('courier',       'Vero courier',     Icons.local_shipping_rounded),
                       Mini('vero_bike',     'Vero bike',        Icons.pedal_bike_rounded),
                       Mini('car_hire',      'Car hire',         Icons.directions_car_rounded),
-                      // Financial
                       Mini('mobile_money', 'Vero pay',          Icons.account_balance_wallet_rounded),
-                      Mini('fx',           'Exchange rate',     Icons.currency_exchange_rounded),
+                      Mini('fx',           'Exchange rates',     Icons.currency_exchange_rounded),
+                      Mini('fx',           'Hair salon',         Icons.cut_rounded),
+                      Mini('food',         'Food',            Icons.fastfood_rounded),
+                      Mini('fx',           'Fitness',     Icons.sports_gymnastics),
+                      Mini('fx',           'Health',         Icons.local_hospital),
+                       Mini('fx',           'Jobs',         Icons.business_center_rounded),
+                     Mini('accommodation',          'Accomodation',  Icons.hotel_rounded),
+                      Mini('education',    'Education',       Icons.school_rounded),
+                      Mini('home_cleaning','Home cleaning',   Icons.cleaning_services_rounded),
+                      Mini('Vero Chat',   'Vero AI Chat',    Icons.chat_rounded),
                     ],
                     onOpen: (key) => _Vero360HomepageState._openServiceStatic(context, key),
                   ),
@@ -235,14 +246,24 @@ class _Vero360HomepageState extends State<Vero360Homepage> {
       case 'grocery':
         page = FoodPage();
         break;
+        
+
+
+
+        
 
       case 'courier':
         page = const UtilityPage(); // replace when you have a dedicated Courier page
+        break;    //
+
+      case 'vero_bike':
+         page = const BikePage(); // reuse Taxi flow for now
         break;
+ 
 
       case 'taxi':
       case 'airport_pickup':
-      case 'vero_bike':
+
       case 'car_hire':
         page = const TaxiPage(); // reuse Taxi flow for now
         break;
