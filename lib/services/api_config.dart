@@ -7,7 +7,7 @@ import 'package:http/http.dart' as http;
 
 class ApiConfig {
   // ===== Defaults =====
-  static const String prod = 'https://vero-backend.onrender.com';
+  static const String prod = 'https://vero-backend-1.onrender.com/';
   static const String devAndroid = 'http://10.0.2.2:3000';   // Android emulator → host
   static const String devIOSDesktop = 'http://127.0.0.1:3000'; // iOS sim / desktop
   static const String devWeb = 'http://localhost:3000';      // Flutter web
