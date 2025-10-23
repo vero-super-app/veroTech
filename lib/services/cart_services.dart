@@ -28,7 +28,7 @@ class CartService {
 
 
   Future<Uri> _uri(String path, {Map<String, String>? query}) async {
-    final base = await ApiConfig.readBase(); // e.g. https://vero-backend.onrender.com
+    final base = await ApiConfig.readBase(); 
     final origin = base.endsWith('/') ? base.substring(0, base.length - 1) : base;
     final normalized = path.startsWith('/') ? path : '/$path';
     final u = Uri.parse('$origin$normalized');

@@ -16,7 +16,7 @@ class LatestArrivalServices {
     return '127.0.0.1'; // iOS sim / desktop
   }
 
-  Uri _allUri() => Uri.parse('http://${_localHost()}:3000/latestarrivals');
+  Uri _allUri() => Uri.parse('https://vero-backend-1.onrender.com/latestarrivals');
 
   Future<List<LatestArrivalModels>> fetchLatestArrivals() async {
     try {

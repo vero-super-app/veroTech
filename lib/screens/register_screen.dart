@@ -1,8 +1,9 @@
 // lib/screens/register_screen.dart
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-// REMOVED: import 'package:vero360_app/Pages/MerchantApplicationForm.dart';
-import 'package:vero360_app/Pages/merchantbottomnavbar.dart'; // still used elsewhere; safe to keep
+
 import 'package:vero360_app/services/auth_service.dart';
 import 'package:vero360_app/toasthelper.dart';
 import 'package:vero360_app/screens/login_screen.dart';
@@ -46,8 +47,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool _verifying = false;
   bool _registering = false;
 
+  // resend cooldown
+  static const int _cooldownSecs = 45;
+  int _resendSecs = 0;
+  Timer? _resendTimer;
+
   @override
   void dispose() {
+    _resendTimer?.cancel();
     _name.dispose();
     _email.dispose();
     _phone.dispose();
@@ -57,6 +64,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     super.dispose();
   }
 
+  // ----- validators -----
   String? _validateName(String? v) =>
       (v == null || v.trim().isEmpty) ? 'Name is required' : null;
 
@@ -89,33 +97,44 @@ class _RegisterScreenState extends State<RegisterScreen> {
     return null;
   }
 
-  InputDecoration _fieldDecoration({
-    required String label,
-    required String hint,
-    required IconData icon,
-    Widget? trailing,
-  }) {
-    return InputDecoration(
-      labelText: label,
-      hintText: hint,
-      prefixIcon: Icon(icon),
-      suffixIcon: trailing,
-      filled: true,
-      fillColor: AppColors.fieldFill,
-      contentPadding: const EdgeInsets.symmetric(vertical: 14, horizontal: 14),
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
-        borderSide: BorderSide.none,
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(color: AppColors.brandOrange, width: 1.2),
-      ),
-    );
+  // ---- quick checks for OTP send only ----
+  bool _isValidEmailForOtp(String s) =>
+      RegExp(r'^[\w\.\-]+@([\w\-]+\.)+[\w\-]{2,}$').hasMatch(s.trim());
+
+  bool _isValidPhoneForOtp(String s) {
+    final d = s.replaceAll(RegExp(r'\D'), '');
+    return RegExp(r'^(08|09)\d{8}$').hasMatch(d) || RegExp(r'^\+265[89]\d{8}$').hasMatch(s.trim());
+  }
+
+  void _startCooldown() {
+    setState(() => _resendSecs = _cooldownSecs);
+    _resendTimer?.cancel();
+    _resendTimer = Timer.periodic(const Duration(seconds: 1), (t) {
+      if (!mounted) return;
+      if (_resendSecs <= 1) {
+        t.cancel();
+        setState(() => _resendSecs = 0);
+      } else {
+        setState(() => _resendSecs -= 1);
+      }
+    });
   }
 
   Future<void> _sendCode() async {
-    if (!(_formKey.currentState?.validate() ?? false)) return;
+    // Validate only the field relevant to OTP
+    if (_method == VerifyMethod.email) {
+      final err = _validateEmail(_email.text);
+      if (err != null) {
+        ToastHelper.showCustomToast(context, err, isSuccess: false, errorMessage: '');
+        return;
+      }
+    } else {
+      final err = _validatePhone(_phone.text);
+      if (err != null) {
+        ToastHelper.showCustomToast(context, err, isSuccess: false, errorMessage: '');
+        return;
+      }
+    }
 
     setState(() {
       _sending = true;
@@ -130,7 +149,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
         phone: method == 'phone' ? _phone.text.trim() : null,
         context: context,
       );
-      if (ok) setState(() => _otpSent = true);
+      if (ok) {
+        setState(() => _otpSent = true);
+        _startCooldown();
+      }
     } finally {
       if (mounted) setState(() => _sending = false);
     }
@@ -144,7 +166,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
         isSuccess: false,
         errorMessage: '',
       );
+      return;
     }
+
+    // Full form validation happens here (not on send code)
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
     if (!_otpSent) {
@@ -167,8 +192,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
 
     final preferred = _method == VerifyMethod.email ? 'email' : 'phone';
-    final identifier =
-        preferred == 'email' ? _email.text.trim() : _phone.text.trim();
+    final identifier = preferred == 'email' ? _email.text.trim() : _phone.text.trim();
 
     setState(() => _verifying = true);
     String? ticket;
@@ -203,11 +227,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
   }
 
-  /// Merchant flow (UPDATED):
-  /// - Do NOT auto-login or go to merchant home.
-  /// - Save a prefill identifier (so Login can auto-fill).
-  /// - Clear any tokens just in case.
-  /// - Push straight to LoginScreen (no back stack).
+  /// Merchant flow: do not auto-login; send to login with prefill.
   Future<void> _handleAuthResponse(Map<String, dynamic>? resp) async {
     if (resp == null || !mounted) return;
 
@@ -216,10 +236,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       await prefs.remove('token');
       await prefs.remove('jwt_token');
 
-      // Save something the Login page can read to prefill the identifier
-      final prefill = _email.text.trim().isNotEmpty
-          ? _email.text.trim()
-          : _phone.text.trim();
+      final prefill = _email.text.trim().isNotEmpty ? _email.text.trim() : _phone.text.trim();
       await prefs.setString('prefill_login_identifier', prefill);
       await prefs.setString('prefill_login_role', 'merchant');
 
@@ -234,13 +251,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
       return;
     }
 
-    // Non-merchant: back or go to login (your choice). Keeping your original behavior:
     if (Navigator.of(context).canPop()) {
       Navigator.of(context).maybePop();
     } else {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const LoginScreen()),
-      );
+      Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const LoginScreen()));
     }
   }
 
@@ -252,17 +266,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
     );
   }
 
-  void _showSnack(String msg) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
-  }
-
   @override
   Widget build(BuildContext context) {
-    final canSend = (_formKey.currentState?.validate() ?? false) &&
-        (_method == VerifyMethod.email
-            ? _email.text.trim().isNotEmpty
-            : _phone.text.trim().isNotEmpty);
+    final canSend = _method == VerifyMethod.email
+        ? _isValidEmailForOtp(_email.text)
+        : _isValidPhoneForOtp(_phone.text);
+
+    final sendBtnDisabled = _sending || _verifying || _registering || !canSend || _resendSecs > 0;
 
     return Scaffold(
       body: Stack(
@@ -279,7 +289,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
           const Positioned(right: -50, top: -30, child: _Blob(size: 220, color: Color(0x33FF8A00))),
           const Positioned(left: -70, top: 200, child: _Blob(size: 180, color: Color(0x2264D2FF))),
           const Positioned(right: -40, bottom: -40, child: _Blob(size: 160, color: Color(0x2245C4B0))),
-
           SafeArea(
             child: Center(
               child: SingleChildScrollView(
@@ -292,9 +301,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       Container(
                         padding: const EdgeInsets.all(3),
                         decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: [AppColors.brandOrange, Color(0xFFFFB85C)],
-                          ),
+                          gradient: const LinearGradient(colors: [AppColors.brandOrange, Color(0xFFFFB85C)]),
                           shape: BoxShape.circle,
                           boxShadow: [
                             BoxShadow(
@@ -480,7 +487,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                   'Verify via',
                                   style: TextStyle(
                                     color: Colors.black.withOpacity(0.7),
-                                    fontWeight: FontWeight.w700),
+                                    fontWeight: FontWeight.w700,
+                                  ),
                                 ),
                               ),
                               const SizedBox(height: 6),
@@ -514,11 +522,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                 children: [
                                   Expanded(
                                     child: OutlinedButton.icon(
-                                      onPressed: (_sending || _verifying || _registering || !canSend)
-                                          ? null
-                                          : _sendCode,
+                                      onPressed: sendBtnDisabled ? null : _sendCode,
                                       icon: const Icon(Icons.sms_outlined),
-                                      label: Text(_sending ? 'Sending…' : 'Send code'),
+                                      label: Text(
+                                        _sending
+                                            ? 'Sending…'
+                                            : (_resendSecs > 0 ? 'Resend in ${_resendSecs}s' : 'Send code'),
+                                      ),
                                     ),
                                   ),
                                 ],
@@ -546,9 +556,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                   onPressed: (_registering || _verifying) ? null : _verifyAndRegister,
                                   style: ElevatedButton.styleFrom(
                                     backgroundColor: AppColors.brandOrange,
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(14),
-                                    ),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                                   ),
                                   child: Text(
                                     _registering
@@ -611,6 +619,31 @@ class _RegisterScreenState extends State<RegisterScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  InputDecoration _fieldDecoration({
+    required String label,
+    required String hint,
+    required IconData icon,
+    Widget? trailing,
+  }) {
+    return InputDecoration(
+      labelText: label,
+      hintText: hint,
+      prefixIcon: Icon(icon),
+      suffixIcon: trailing,
+      filled: true,
+      fillColor: AppColors.fieldFill,
+      contentPadding: const EdgeInsets.symmetric(vertical: 14, horizontal: 14),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: BorderSide.none,
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: AppColors.brandOrange, width: 1.2),
       ),
     );
   }

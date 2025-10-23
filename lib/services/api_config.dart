@@ -1,85 +1,47 @@
 // lib/services/api_config.dart
 import 'dart:async';
-import 'package:flutter/foundation.dart'
-    show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 
 class ApiConfig {
-  // ===== Defaults =====
-  static const String prod = 'https://vero-backend-1.onrender.com/';
-  static const String devAndroid = 'http://10.0.2.2:3000';   // Android emulator → host
-  static const String devIOSDesktop = 'http://127.0.0.1:3000'; // iOS sim / desktop
-  static const String devWeb = 'http://localhost:3000';      // Flutter web
-
-  // Back-compat alias (some services reference prodBase)
+  /// 🔒 Single source of truth (no trailing slash)
+  static const String prod = 'https://vero-backend-1.onrender.com/api';
+  
   static String get prodBase => prod;
 
   static const String _prefsKey = 'api_base';
-  static String? _current;
   static bool _inited = false;
 
-  /// Call once early in main() or let readBase() lazy-init.
+  /// Force PROD and persist it (overwrites any dev/custom base you may have saved earlier).
   static Future<void> init() async {
     if (_inited) return;
     final prefs = await SharedPreferences.getInstance();
-
-    // 1) Previously chosen base (user/dev override)
-    String? base = prefs.getString(_prefsKey)?.trim();
-
-    // 2) Build-time define: --dart-define=API_BASE=https://example
-    base ??= const String.fromEnvironment('API_BASE', defaultValue: '').trim();
-
-    // 3) If empty, auto-detect: prefer local dev if reachable, else prod
-    if (base.isEmpty) {
-      base = await _autoDetectBase();
-      await prefs.setString(_prefsKey, base);
-    }
-
-    _current = base;
+    await prefs.setString(_prefsKey, prod);
     _inited = true;
   }
 
-  /// Non-null, single source of truth.
+  /// Always returns PROD.
   static Future<String> readBase() async {
     if (!_inited) await init();
-    return _current ?? prod;
+    return prod;
   }
 
-  /// Persist and use a new base (empty → prod).
-  static Future<void> setBase(String base) async {
-    final v = base.trim().isEmpty ? prod : base.trim();
-    _current = v;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_prefsKey, v);
+  /// Alias you can call in main() for clarity.
+  static Future<void> useProd() => init();
+
+  /// Build URIs safely (no double slashes).
+  static Uri endpoint(String path) {
+    final p = path.startsWith('/') ? path : '/$path';
+    return Uri.parse('$prod$p');
   }
 
-  static Future<void> useProd() => setBase(prod);
-  static Future<void> useDev() async => setBase(_devDefault());
-
-  // ===== Internals =====
-  static String _devDefault() {
-    if (kIsWeb) return devWeb;
-    if (defaultTargetPlatform == TargetPlatform.android) return devAndroid;
-    return devIOSDesktop;
-  }
-
-  static Future<String> _autoDetectBase() async {
-    final candidate = _devDefault();
-    final ok = await _isReachable(candidate);
-    return ok ? candidate : prod;
-  }
-
-  static Future<bool> _isReachable(String base) async {
-    // Try /health first (if you have it), fall back to /
-    for (final path in const ['/health', '/']) {
+  /// Optional: quick reachability check for logs/debug UI.
+  static Future<bool> prodReachable({Duration timeout = const Duration(milliseconds: 800)}) async {
+    for (final path in const ['/healthz', '/health', '/']) {
       try {
-        final uri = Uri.parse('$base$path');
-        final res = await http.get(uri).timeout(const Duration(milliseconds: 600));
+        final res = await http.get(Uri.parse('$prod$path')).timeout(timeout);
         if (res.statusCode >= 200 && res.statusCode < 500) return true;
-      } catch (_) {
-        // keep trying next path
-      }
+      } catch (_) {}
     }
     return false;
   }

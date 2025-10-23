@@ -45,7 +45,7 @@ Future<void> main() async {
     );
   } catch (_) {}
 
-  await ApiConfig.init(); // sets your base URLs
+   await ApiConfig.useProd();
 
   runApp(const MyApp());
 }
