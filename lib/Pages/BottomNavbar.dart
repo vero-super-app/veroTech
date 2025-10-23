@@ -4,12 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vero360_app/screens/chat_list_page.dart';
-import 'package:vero360_app/services/api_config.dart';
 
 import 'homepage.dart';
 import '../Pages/marketPlace.dart';
 import '../Pages/cartpage.dart';
-import '../Pages/Home/Messages.dart';
 import '../Pages/Home/Profilepage.dart';
 import '../services/cart_services.dart';
 

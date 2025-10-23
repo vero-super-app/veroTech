@@ -10,7 +10,6 @@ import 'package:vero360_app/screens/chat_list_page.dart';
 import 'homepage.dart';
 import '../Pages/marketPlace.dart';
 import '../Pages/cartpage.dart';
-import '../Pages/Home/Messages.dart';
 
 import '../services/cart_services.dart';
 
@@ -44,7 +43,7 @@ final cartService = CartService('https://vero-backend.onrender.com', apiPrefix: 
       Vero360Homepage(email: widget.email),
       MarketPage(cartService: cartService),
       ChatListPage(),
-      // MessagePage(peerId: '', peerAppId: '',),
+  
       CartPage(cartService: cartService),
  
       MerchantProfilePage(),

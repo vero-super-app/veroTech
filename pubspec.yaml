@@ -75,23 +75,8 @@ flutter:
 
   assets:
     - assets/logo_mark.png
-    - assets/veggies.jpg
-    - assets/basket.jpg
-    - assets/shoes/airforce.jpg
-    - assets/shoes/timberland.jpg
-    - assets/shoes/converse.jpg
-    - assets/shoes/airmax.jpg
     - assets/happy.jpg
     - assets/uber-cabs-1024x576.webp
     - assets/Queens-Tavern-Steak.jpg
-    - assets/chat.png
-    - assets/veropay.png
-    - assets/exchange.png
-    - assets/accomodation.webp
-    - assets/homecleaning.png
-    - assets/hospital.png
-    - assets/gym.jpg
-    - assets/barber.webp
-    - assets/vero_courier.png
     - assets/veroai.png
 

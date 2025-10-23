@@ -10,13 +10,12 @@ import 'package:vero360_app/Pages/MobileMoney.dart';
 import 'package:vero360_app/Pages/More.dart';
 import 'package:vero360_app/Pages/Taxi.dart';
 import 'package:vero360_app/Pages/food.dart';
-import 'package:vero360_app/Pages/marketPlace.dart';
 import 'package:vero360_app/Pages/verocourier.dart';
+import '../services/cart_services.dart';
 
 // Latest arrivals
 import 'package:vero360_app/models/Latest_model.dart';
 import 'package:vero360_app/services/latest_Services.dart';
-import 'package:vero360_app/services/marketplace.service.dart';
 
 class AppColors {
   static const brandOrange = Color(0xFFFF8A00);
@@ -96,6 +95,8 @@ class _Vero360HomepageState extends State<Vero360Homepage> {
       serviceKey: 'Vero Chat',
     ),
   ];
+  
+final cartService = CartService('https://vero-backend.onrender.com', apiPrefix: 'api');
 
   @override
   void initState() {
@@ -181,18 +182,18 @@ class _Vero360HomepageState extends State<Vero360Homepage> {
                       Mini('airport_pickup','Airport pickup',   Icons.flight_takeoff_rounded),
                       Mini('courier',       'Vero courier',     Icons.local_shipping_rounded),
                       Mini('vero_bike',     'Vero bike',        Icons.pedal_bike_rounded),
-                      Mini('car_hire',      'Car hire',         Icons.directions_car_rounded),
-                      Mini('mobile_money', 'Vero pay',          Icons.account_balance_wallet_rounded),
+                      Mini('car_hire',      'Car hire',         Icons.car_rental_rounded),
+                  
                       Mini('fx',           'Exchange rates',     Icons.currency_exchange_rounded),
                       Mini('fx',           'Hair salon',         Icons.cut_rounded),
                       Mini('food',         'Food',            Icons.fastfood_rounded),
-                      Mini('fx',           'Fitness',     Icons.sports_gymnastics),
-                      Mini('fx',           'Health',         Icons.local_hospital),
-                       Mini('fx',           'Jobs',         Icons.business_center_rounded),
+                      Mini('fx',           'Fitness',     Icons.fitness_center_rounded),
+                  
+                      Mini('fx',           'Jobs',         Icons.business_center_rounded),
                      Mini('accommodation',          'Accomodation',  Icons.hotel_rounded),
-                      Mini('education',    'Education',       Icons.school_rounded),
-                      Mini('home_cleaning','Home cleaning',   Icons.cleaning_services_rounded),
-                      Mini('Vero Chat',   'Vero AI Chat',    Icons.chat_rounded),
+                     Mini('more'                ,'More',   Icons.more_horiz_rounded),
+
+
                     ],
                     onOpen: (key) => _Vero360HomepageState._openServiceStatic(context, key),
                   ),
@@ -248,9 +249,11 @@ class _Vero360HomepageState extends State<Vero360Homepage> {
         break;
         
 
-
-
+        case 'more':
+        page =MorePage();
+        break;
         
+
 
       case 'courier':
         page = const UtilityPage(); // replace when you have a dedicated Courier page
@@ -698,7 +701,7 @@ class _MiniIconsGrid extends StatelessWidget {
       final w = c.maxWidth;
       final cross = w < 320 ? 3 : (w < 560 ? 4 : (w < 760 ? 5 : 6));
       // Slightly taller tiles reduce risk of vertical overflow (icon + 2-line label)
-      final ratio = w < 340 ? 0.82 : 0.9;
+      final ratio = w < 140 ? 0.82 : 0.94;
 
       return GridView.builder(
         shrinkWrap: true,
@@ -747,7 +750,7 @@ class _MiniIconTile extends StatelessWidget {
             decoration: BoxDecoration(
               color: AppColors.brandOrangePale,                    // soft orange fill
               shape: BoxShape.circle,
-              border: Border.all(color: AppColors.brandOrangeSoft), // subtle orange outline
+              border: Border.all(color: AppColors.brandOrange), // subtle orange outline
             ),
             child: Icon(icon, size: 26, color: AppColors.title),
           ),
