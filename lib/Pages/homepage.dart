@@ -3,14 +3,19 @@ import 'package:carousel_slider/carousel_slider.dart';
 
 // Feature pages
 import 'package:vero360_app/Accomodation.dart';
-import 'package:vero360_app/Pages/Bike.dart';
-import 'package:vero360_app/Pages/Edu.dart';
-import 'package:vero360_app/Pages/ExchangeRate.dart';
-import 'package:vero360_app/Pages/MobileMoney.dart';
-import 'package:vero360_app/Pages/More.dart';
-import 'package:vero360_app/Pages/Taxi.dart';
-import 'package:vero360_app/Pages/food.dart';
-import 'package:vero360_app/Pages/verocourier.dart';
+import 'package:vero360_app/Pages/Quickservices/Bike.dart';
+import 'package:vero360_app/Pages/Quickservices/Edu.dart';
+import 'package:vero360_app/Pages/Quickservices/ExchangeRate.dart';
+import 'package:vero360_app/Pages/Quickservices/Hairsaloon.dart';
+import 'package:vero360_app/Pages/Quickservices/MobileMoney.dart';
+import 'package:vero360_app/Pages/Quickservices/More.dart';
+import 'package:vero360_app/Pages/Quickservices/Taxi.dart';
+import 'package:vero360_app/Pages/Quickservices/airportpickup.dart';
+import 'package:vero360_app/Pages/Quickservices/carhire.dart';
+import 'package:vero360_app/Pages/Quickservices/fitness.dart';
+import 'package:vero360_app/Pages/Quickservices/food.dart';
+import 'package:vero360_app/Pages/Quickservices/jobs.dart';
+import 'package:vero360_app/Pages/Quickservices/verocourier.dart';
 import '../services/cart_services.dart';
 
 // Latest arrivals
@@ -185,11 +190,11 @@ final cartService = CartService('https://vero-backend.onrender.com', apiPrefix: 
                       Mini('car_hire',      'Car hire',         Icons.car_rental_rounded),
                   
                       Mini('fx',           'Exchange rates',     Icons.currency_exchange_rounded),
-                      Mini('fx',           'Hair salon',         Icons.cut_rounded),
+                      Mini('hair',           'Hair salon',         Icons.cut_rounded),
                       Mini('food',         'Food',            Icons.fastfood_rounded),
-                      Mini('fx',           'Fitness',     Icons.fitness_center_rounded),
+                      Mini('fitness',           'Fitness',     Icons.fitness_center_rounded),
                   
-                      Mini('fx',           'Jobs',         Icons.business_center_rounded),
+                      Mini('jobs',           'Jobs',         Icons.business_center_rounded),
                      Mini('accommodation',          'Accomodation',  Icons.hotel_rounded),
                      Mini('more'                ,'More',   Icons.more_horiz_rounded),
 
@@ -214,7 +219,7 @@ final cartService = CartService('https://vero-backend.onrender.com', apiPrefix: 
             // Latest arrivals
             const SliverToBoxAdapter(
               child: Padding(
-                padding: EdgeInsets.fromLTRB(10, 12, 16, 16),
+                padding: EdgeInsets.fromLTRB(6, 12, 16, 16),
                 child: LatestArrivalsSection(),
               ),
             ),
@@ -252,9 +257,21 @@ final cartService = CartService('https://vero-backend.onrender.com', apiPrefix: 
         case 'more':
         page =MorePage();
         break;
+
+        case 'hair':
+        page =Hairsalonpage();
+        break;
+
+        case 'fitness':
+        page =Fitnespage();
+        break;
+
+         case 'jobs':
+        page =Jobspage();
+        break;
         
-
-
+        
+      
       case 'courier':
         page = const UtilityPage(); // replace when you have a dedicated Courier page
         break;    //
@@ -262,14 +279,21 @@ final cartService = CartService('https://vero-backend.onrender.com', apiPrefix: 
       case 'vero_bike':
          page = const BikePage(); // reuse Taxi flow for now
         break;
+
+          case 'airport_pickup':
+        page = const Airportpickuppage(); // reuse Taxi flow for now
+        break;
  
 
+
       case 'taxi':
-      case 'airport_pickup':
+        page = const TaxiPage();
+        break;
 
       case 'car_hire':
-        page = const TaxiPage(); // reuse Taxi flow for now
+        page = const carhirepage(); 
         break;
+
 
       case 'send_money':
       case 'mobile_money':
