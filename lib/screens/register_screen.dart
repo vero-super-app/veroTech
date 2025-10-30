@@ -1,12 +1,12 @@
-// lib/screens/register_screen.dart
 import 'dart:async';
-
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:vero360_app/services/auth_service.dart';
 import 'package:vero360_app/toasthelper.dart';
-import 'package:vero360_app/screens/login_screen.dart';
+import 'package:vero360_app/Pages/BottomNavbar.dart';
+import 'package:vero360_app/Pages/merchantbottomnavbar.dart';
 
 class AppColors {
   static const brandOrange = Color(0xFFFF8A00);
@@ -20,7 +20,6 @@ enum UserRole { customer, merchant }
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
-
   @override
   State<RegisterScreen> createState() => _RegisterScreenState();
 }
@@ -46,8 +45,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool _otpSent = false;
   bool _verifying = false;
   bool _registering = false;
+  bool _socialLoading = false;
 
-  // resend cooldown
   static const int _cooldownSecs = 45;
   int _resendSecs = 0;
   Timer? _resendTimer;
@@ -55,16 +54,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
   @override
   void dispose() {
     _resendTimer?.cancel();
-    _name.dispose();
-    _email.dispose();
-    _phone.dispose();
-    _password.dispose();
-    _confirm.dispose();
-    _code.dispose();
+    _name.dispose(); _email.dispose(); _phone.dispose();
+    _password.dispose(); _confirm.dispose(); _code.dispose();
     super.dispose();
   }
 
-  // ----- validators -----
+  // ---------- validators ----------
   String? _validateName(String? v) =>
       (v == null || v.trim().isEmpty) ? 'Name is required' : null;
 
@@ -97,7 +92,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
     return null;
   }
 
-  // ---- quick checks for OTP send only ----
   bool _isValidEmailForOtp(String s) =>
       RegExp(r'^[\w\.\-]+@([\w\-]+\.)+[\w\-]{2,}$').hasMatch(s.trim());
 
@@ -120,8 +114,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
     });
   }
 
+  // ---------- OTP flow ----------
   Future<void> _sendCode() async {
-    // Validate only the field relevant to OTP
     if (_method == VerifyMethod.email) {
       final err = _validateEmail(_email.text);
       if (err != null) {
@@ -136,10 +130,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       }
     }
 
-    setState(() {
-      _sending = true;
-      _otpSent = false;
-    });
+    setState(() { _sending = true; _otpSent = false; });
 
     try {
       final method = _method == VerifyMethod.email ? 'email' : 'phone';
@@ -153,41 +144,22 @@ class _RegisterScreenState extends State<RegisterScreen> {
         setState(() => _otpSent = true);
         _startCooldown();
       }
-    } finally {
-      if (mounted) setState(() => _sending = false);
-    }
+    } finally { if (mounted) setState(() => _sending = false); }
   }
 
   Future<void> _verifyAndRegister() async {
     if (!_agree) {
-      ToastHelper.showCustomToast(
-        context,
-        'Please agree to the Terms & Privacy',
-        isSuccess: false,
-        errorMessage: '',
-      );
+      ToastHelper.showCustomToast(context, 'Please agree to the Terms & Privacy', isSuccess: false, errorMessage: '');
       return;
     }
-
-    // Full form validation happens here (not on send code)
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
     if (!_otpSent) {
-      ToastHelper.showCustomToast(
-        context,
-        'Please request a code first',
-        isSuccess: false,
-        errorMessage: '',
-      );
+      ToastHelper.showCustomToast(context, 'Please request a code first', isSuccess: false, errorMessage: '');
       return;
     }
     if (_code.text.trim().isEmpty) {
-      ToastHelper.showCustomToast(
-        context,
-        'Enter the verification code',
-        isSuccess: false,
-        errorMessage: '',
-      );
+      ToastHelper.showCustomToast(context, 'Enter the verification code', isSuccess: false, errorMessage: '');
       return;
     }
 
@@ -202,9 +174,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         code: _code.text.trim(),
         context: context,
       );
-    } finally {
-      if (mounted) setState(() => _verifying = false);
-    }
+    } finally { if (mounted) setState(() => _verifying = false); }
     if (ticket == null) return;
 
     setState(() => _registering = true);
@@ -221,48 +191,78 @@ class _RegisterScreenState extends State<RegisterScreen> {
         context: context,
       );
       if (!mounted) return;
-      await _handleAuthResponse(resp);
-    } finally {
-      if (mounted) setState(() => _registering = false);
-    }
+
+      // Auto-route like the login screen:
+      await _routeFromAuthResponse(resp);
+    } finally { if (mounted) setState(() => _registering = false); }
   }
 
-  /// Merchant flow: do not auto-login; send to login with prefill.
-  Future<void> _handleAuthResponse(Map<String, dynamic>? resp) async {
-    if (resp == null || !mounted) return;
-
-    if (_role == UserRole.merchant) {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove('token');
-      await prefs.remove('jwt_token');
-
-      final prefill = _email.text.trim().isNotEmpty ? _email.text.trim() : _phone.text.trim();
-      await prefs.setString('prefill_login_identifier', prefill);
-      await prefs.setString('prefill_login_role', 'merchant');
-
-      ToastHelper.showCustomToast(
-        context,
-        'Account created! Please sign in to continue.',
-        isSuccess: true,
-        errorMessage: '',
-      );
-
-      _goToLoginPrefilled();
-      return;
-    }
-
-    if (Navigator.of(context).canPop()) {
-      Navigator.of(context).maybePop();
-    } else {
-      Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const LoginScreen()));
-    }
+  // ---------- Social on register (logo-only buttons) ----------
+  Future<void> _google() async {
+    setState(() => _socialLoading = true);
+    try {
+      final resp = await AuthService().continueWithGoogle(context);
+      await _routeFromAuthResponse(resp);
+    } finally { if (mounted) setState(() => _socialLoading = false); }
   }
 
-  Future<void> _goToLoginPrefilled() async {
+  Future<void> _apple() async {
+    if (!Platform.isIOS) return;
+    setState(() => _socialLoading = true);
+    try {
+      final resp = await AuthService().continueWithApple(context);
+      await _routeFromAuthResponse(resp);
+    } finally { if (mounted) setState(() => _socialLoading = false); }
+  }
+
+  Future<void> _routeFromAuthResponse(Map<String, dynamic>? resp) async {
+    if (resp == null) return;
+    final prefs = await SharedPreferences.getInstance();
+
+    final token = resp['token']?.toString();
+    final user = Map<String, dynamic>.from(resp['user'] ?? {});
+    if (token != null && token.isNotEmpty) {
+      await prefs.setString('token', token);
+      await prefs.setString('jwt_token', token);
+      final displayId = user['email']?.toString() ?? user['phone']?.toString() ?? '';
+      if (displayId.isNotEmpty) await prefs.setString('email', displayId);
+    }
+
+    final role = (user['role'] ?? user['userRole'] ?? '').toString().toLowerCase();
+
     if (!mounted) return;
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(builder: (_) => const LoginScreen()),
-      (_) => false,
+    if (role == 'merchant') {
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => MerchantBottomnavbar(email: user['email']?.toString() ?? '')),
+        (_) => false,
+      );
+    } else {
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => Bottomnavbar(email: user['email']?.toString() ?? '')),
+        (_) => false,
+      );
+    }
+  }
+
+  Widget _socialRow() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        _SocialIconButton(
+          asset: 'assets/icons/google.png',
+          semanticLabel: 'Continue with Google',
+          onPressed: _socialLoading ? null : _google,
+        ),
+        if (Platform.isIOS) ...[
+          const SizedBox(width: 14),
+          _SocialIconButton(
+            asset: 'assets/icons/apple.png',
+            darkBg: true,
+            semanticLabel: 'Continue with Apple',
+            onPressed: _socialLoading ? null : _apple,
+          ),
+        ],
+      ],
     );
   }
 
@@ -271,397 +271,269 @@ class _RegisterScreenState extends State<RegisterScreen> {
     final canSend = _method == VerifyMethod.email
         ? _isValidEmailForOtp(_email.text)
         : _isValidPhoneForOtp(_phone.text);
-
     final sendBtnDisabled = _sending || _verifying || _registering || !canSend || _resendSecs > 0;
 
     return Scaffold(
-      body: Stack(
-        children: [
-          Container(
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment(0, -1),
-                end: Alignment(0, 1),
-                colors: [Color(0xFFFFF4E9), Colors.white],
-              ),
+      body: Stack(children: [
+        Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment(0, -1), end: Alignment(0, 1),
+              colors: [Color(0xFFFFF4E9), Colors.white],
             ),
           ),
-          const Positioned(right: -50, top: -30, child: _Blob(size: 220, color: Color(0x33FF8A00))),
-          const Positioned(left: -70, top: 200, child: _Blob(size: 180, color: Color(0x2264D2FF))),
-          const Positioned(right: -40, bottom: -40, child: _Blob(size: 160, color: Color(0x2245C4B0))),
-          SafeArea(
-            child: Center(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 520),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(3),
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(colors: [AppColors.brandOrange, Color(0xFFFFB85C)]),
-                          shape: BoxShape.circle,
-                          boxShadow: [
-                            BoxShadow(
-                              color: AppColors.brandOrange.withOpacity(0.25),
-                              blurRadius: 22,
-                              offset: const Offset(0, 10),
-                            ),
-                          ],
-                        ),
-                        child: CircleAvatar(
-                          radius: 44,
-                          backgroundColor: Colors.white,
-                          child: ClipOval(
-                            child: Image.asset(
-                              'assets/logo_mark.png',
-                              width: 72,
-                              height: 72,
-                              fit: BoxFit.cover,
-                              errorBuilder: (_, __, ___) =>
-                                  const Icon(Icons.eco, size: 42, color: AppColors.brandOrange),
-                            ),
+        ),
+        SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 520),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Brand
+                    Container(
+                      padding: const EdgeInsets.all(3),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(colors: [AppColors.brandOrange, Color(0xFFFFB85C)]),
+                        shape: BoxShape.circle,
+                        boxShadow: [BoxShadow(color: AppColors.brandOrange.withOpacity(0.25), blurRadius: 20, offset: const Offset(0, 10))],
+                      ),
+                      child: CircleAvatar(
+                        radius: 44,
+                        backgroundColor: Colors.white,
+                        child: ClipOval(
+                          child: Image.asset(
+                            'assets/logo_mark.png',
+                            width: 72, height: 72, fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => const Icon(Icons.eco, size: 42, color: AppColors.brandOrange),
                           ),
                         ),
                       ),
-                      const SizedBox(height: 18),
-                      const Text(
-                        'Create your account',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: AppColors.title,
-                          fontSize: 26,
-                          fontWeight: FontWeight.w800,
-                          height: 1.2,
-                        ),
+                    ),
+                    const SizedBox(height: 18),
+                    const Text('Create your account',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: AppColors.title, fontSize: 26, fontWeight: FontWeight.w800)),
+                    const SizedBox(height: 10),
+
+                    // Logo-only socials
+                    _socialRow(),
+                    const SizedBox(height: 18),
+
+                    // Card + Form
+                    Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white, borderRadius: BorderRadius.circular(20),
+                        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 20, offset: const Offset(0, 10))],
                       ),
-                      const SizedBox(height: 8),
-                      const Text(
-                        'It’s quick and easy to get started',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: AppColors.body,
-                          fontSize: 14.5,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                      const SizedBox(height: 22),
-
-                      Container(
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.9),
-                          borderRadius: BorderRadius.circular(20),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.06),
-                              blurRadius: 24,
-                              offset: const Offset(0, 10),
-                            ),
-                          ],
-                        ),
-                        padding: const EdgeInsets.all(18),
-                        child: Form(
-                          key: _formKey,
-                          onChanged: () => setState(() {}),
-                          child: Column(
-                            children: [
-                              Align(
-                                alignment: Alignment.centerLeft,
-                                child: Text(
-                                  'Account type',
-                                  style: TextStyle(
-                                    color: Colors.black.withOpacity(0.7),
-                                    fontWeight: FontWeight.w700,
-                                  ),
+                      padding: const EdgeInsets.all(18),
+                      child: Form(
+                        key: _formKey,
+                        onChanged: () => setState(() {}),
+                        child: Column(
+                          children: [
+                            // role
+                            Row(
+                              children: [
+                                ChoiceChip(
+                                  label: const Text('Customer'),
+                                  selected: _role == UserRole.customer,
+                                  onSelected: (_) => setState(() => _role = UserRole.customer),
                                 ),
-                              ),
-                              const SizedBox(height: 6),
-                              Row(
-                                children: [
-                                  ChoiceChip(
-                                    label: const Text('Customer'),
-                                    selected: _role == UserRole.customer,
-                                    onSelected: (_) => setState(() => _role = UserRole.customer),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  ChoiceChip(
-                                    label: const Text('Merchant'),
-                                    selected: _role == UserRole.merchant,
-                                    onSelected: (_) => setState(() => _role = UserRole.merchant),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 16),
-
-                              TextFormField(
-                                controller: _name,
-                                textInputAction: TextInputAction.next,
-                                decoration: _fieldDecoration(
-                                  label: 'Your name',
-                                  hint: 'vero',
-                                  icon: Icons.person_outline,
-                                ),
-                                validator: _validateName,
-                              ),
-                              const SizedBox(height: 14),
-                              TextFormField(
-                                controller: _email,
-                                keyboardType: TextInputType.emailAddress,
-                                textInputAction: TextInputAction.next,
-                                decoration: _fieldDecoration(
-                                  label: 'Email',
-                                  hint: 'you@vero.com',
-                                  icon: Icons.alternate_email,
-                                ),
-                                validator: _validateEmail,
-                              ),
-                              const SizedBox(height: 14),
-                              TextFormField(
-                                controller: _phone,
-                                keyboardType: TextInputType.phone,
-                                textInputAction: TextInputAction.next,
-                                decoration: _fieldDecoration(
-                                  label: 'Mobile number',
-                                  hint: '08xxxxxxxx, 09xxxxxxxx or +2659xxxxxxxx',
-                                  icon: Icons.phone_iphone,
-                                ),
-                                validator: _validatePhone,
-                              ),
-                              const SizedBox(height: 14),
-                              TextFormField(
-                                controller: _password,
-                                obscureText: _obscure1,
-                                textInputAction: TextInputAction.next,
-                                decoration: _fieldDecoration(
-                                  label: 'Password',
-                                  hint: '••••••••',
-                                  icon: Icons.lock_outline,
-                                  trailing: IconButton(
-                                    tooltip: _obscure1 ? 'Show' : 'Hide',
-                                    icon: Icon(_obscure1 ? Icons.visibility : Icons.visibility_off),
-                                    onPressed: () => setState(() => _obscure1 = !_obscure1),
-                                  ),
-                                ),
-                                validator: _validatePassword,
-                              ),
-                              const SizedBox(height: 14),
-                              TextFormField(
-                                controller: _confirm,
-                                obscureText: _obscure2,
-                                textInputAction: TextInputAction.done,
-                                decoration: _fieldDecoration(
-                                  label: 'Confirm password',
-                                  hint: '••••••••',
-                                  icon: Icons.lock_outline,
-                                  trailing: IconButton(
-                                    tooltip: _obscure2 ? 'Show' : 'Hide',
-                                    icon: Icon(_obscure2 ? Icons.visibility : Icons.visibility_off),
-                                    onPressed: () => setState(() => _obscure2 = !_obscure2),
-                                  ),
-                                ),
-                                validator: _validateConfirm,
-                              ),
-
-                              const SizedBox(height: 10),
-                              Row(
-                                children: [
-                                  Checkbox(
-                                    value: _agree,
-                                    onChanged: (v) => setState(() => _agree = v ?? false),
-                                  ),
-                                  const Expanded(
-                                    child: Text(
-                                      'I agree to the Terms & Privacy Policy',
-                                      style: TextStyle(color: AppColors.body, fontWeight: FontWeight.w600),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 12),
-
-                              Align(
-                                alignment: Alignment.centerLeft,
-                                child: Text(
-                                  'Verify via',
-                                  style: TextStyle(
-                                    color: Colors.black.withOpacity(0.7),
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                              Row(
-                                children: [
-                                  ChoiceChip(
-                                    label: const Text('Email'),
-                                    selected: _method == VerifyMethod.email,
-                                    onSelected: (_) => setState(() {
-                                      _method = VerifyMethod.email;
-                                      _code.clear();
-                                      _otpSent = false;
-                                    }),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  ChoiceChip(
-                                    label: const Text('Phone'),
-                                    selected: _method == VerifyMethod.phone,
-                                    onSelected: (_) => setState(() {
-                                      _method = VerifyMethod.phone;
-                                      _code.clear();
-                                      _otpSent = false;
-                                    }),
-                                  ),
-                                ],
-                              ),
-
-                              const SizedBox(height: 12),
-
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: OutlinedButton.icon(
-                                      onPressed: sendBtnDisabled ? null : _sendCode,
-                                      icon: const Icon(Icons.sms_outlined),
-                                      label: Text(
-                                        _sending
-                                            ? 'Sending…'
-                                            : (_resendSecs > 0 ? 'Resend in ${_resendSecs}s' : 'Send code'),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-
-                              if (_otpSent) ...[
-                                const SizedBox(height: 10),
-                                TextFormField(
-                                  controller: _code,
-                                  keyboardType: TextInputType.number,
-                                  decoration: _fieldDecoration(
-                                    label: 'Verification code',
-                                    hint: 'Enter the code',
-                                    icon: Icons.verified_outlined,
-                                  ),
+                                const SizedBox(width: 8),
+                                ChoiceChip(
+                                  label: const Text('Merchant'),
+                                  selected: _role == UserRole.merchant,
+                                  onSelected: (_) => setState(() => _role = UserRole.merchant),
                                 ),
                               ],
+                            ),
+                            const SizedBox(height: 16),
 
-                              const SizedBox(height: 16),
+                            _field(controller: _name, label: 'Your name', hint: 'Your full name', icon: Icons.person_outline, validator: _validateName),
+                            const SizedBox(height: 14),
+                            _field(controller: _email, label: 'Email', hint: 'you@vero.com', icon: Icons.alternate_email, keyboard: TextInputType.emailAddress, validator: _validateEmail),
+                            const SizedBox(height: 14),
+                            _field(controller: _phone, label: 'Mobile number', hint: '08xxxxxxxx, 09xxxxxxxx or +2659xxxxxxxx', icon: Icons.phone_iphone, keyboard: TextInputType.phone, validator: _validatePhone),
+                            const SizedBox(height: 14),
+                            _field(
+                              controller: _password, label: 'Password', hint: '••••••••', icon: Icons.lock_outline,
+                              obscure: _obscure1,
+                              trailing: IconButton(
+                                tooltip: _obscure1 ? 'Show' : 'Hide',
+                                icon: Icon(_obscure1 ? Icons.visibility : Icons.visibility_off),
+                                onPressed: () => setState(() => _obscure1 = !_obscure1),
+                              ),
+                              validator: _validatePassword,
+                            ),
+                            const SizedBox(height: 14),
+                            _field(
+                              controller: _confirm, label: 'Confirm password', hint: '••••••••', icon: Icons.lock_outline,
+                              obscure: _obscure2,
+                              trailing: IconButton(
+                                tooltip: _obscure2 ? 'Show' : 'Hide',
+                                icon: Icon(_obscure2 ? Icons.visibility : Icons.visibility_off),
+                                onPressed: () => setState(() => _obscure2 = !_obscure2),
+                              ),
+                              validator: _validateConfirm,
+                            ),
+                            const SizedBox(height: 10),
 
-                              SizedBox(
-                                width: double.infinity,
-                                height: 50,
-                                child: ElevatedButton(
-                                  onPressed: (_registering || _verifying) ? null : _verifyAndRegister,
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: AppColors.brandOrange,
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                                  ),
-                                  child: Text(
-                                    _registering
-                                        ? 'Creating account…'
-                                        : _verifying
-                                            ? 'Verifying…'
-                                            : 'Verify & Create account',
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.w800,
-                                      fontSize: 16,
-                                    ),
-                                  ),
+                            Row(
+                              children: [
+                                Checkbox(value: _agree, onChanged: (v) => setState(() => _agree = v ?? false)),
+                                const Expanded(child: Text('I agree to the Terms & Privacy Policy', style: TextStyle(color: AppColors.body, fontWeight: FontWeight.w600))),
+                              ],
+                            ),
+
+                            const SizedBox(height: 10),
+                            Row(
+                              children: [
+                                ChoiceChip(
+                                  label: const Text('Email'),
+                                  selected: _method == VerifyMethod.email,
+                                  onSelected: (_) => setState(() { _method = VerifyMethod.email; _code.clear(); _otpSent = false; }),
                                 ),
+                                const SizedBox(width: 8),
+                                ChoiceChip(
+                                  label: const Text('Phone'),
+                                  selected: _method == VerifyMethod.phone,
+                                  onSelected: (_) => setState(() { _method = VerifyMethod.phone; _code.clear(); _otpSent = false; }),
+                                ),
+                                const Spacer(),
+                                OutlinedButton.icon(
+                                  onPressed: sendBtnDisabled ? null : _sendCode,
+                                  icon: const Icon(Icons.sms_outlined, size: 18),
+                                  label: Text(_sending ? 'Sending…' : (_resendSecs > 0 ? 'Resend ${_resendSecs}s' : 'Send code')),
+                                ),
+                              ],
+                            ),
+
+                            if (_otpSent) ...[
+                              const SizedBox(height: 10),
+                              _field(
+                                controller: _code,
+                                label: 'Verification code',
+                                hint: 'Enter the code',
+                                icon: Icons.verified_outlined,
+                                keyboard: TextInputType.number,
                               ),
                             ],
-                          ),
-                        ),
-                      ),
 
-                      const SizedBox(height: 16),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        textBaseline: TextBaseline.alphabetic,
-                        children: [
-                          const Text(
-                            "Already have an account?",
-                            style: TextStyle(
-                              color: AppColors.body,
-                              fontWeight: FontWeight.w600,
-                              height: 1.0,
-                            ),
-                          ),
-                          const SizedBox(width: 6),
-                          TextButton(
-                            onPressed: () => Navigator.pop(context),
-                            style: TextButton.styleFrom(
-                              padding: EdgeInsets.zero,
-                              minimumSize: const Size(0, 0),
-                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                              alignment: Alignment.centerLeft,
-                            ),
-                            child: const Text(
-                              'Sign in',
-                              style: TextStyle(
-                                color: AppColors.brandOrange,
-                                fontWeight: FontWeight.w800,
-                                height: 1.0,
+                            const SizedBox(height: 14),
+                            SizedBox(
+                              width: double.infinity, height: 50,
+                              child: ElevatedButton(
+                                onPressed: (_registering || _verifying) ? null : _verifyAndRegister,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: AppColors.brandOrange,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                                ),
+                                child: Text(
+                                  _registering ? 'Creating account…' : _verifying ? 'Verifying…' : 'Verify & Create account',
+                                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 16),
+                                ),
                               ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
-                      const SizedBox(height: 10),
-                    ],
-                  ),
+                    ),
+
+                    const SizedBox(height: 14),
+                    TextButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: const Text('Already have an account? Sign in',
+                        style: TextStyle(color: AppColors.brandOrange, fontWeight: FontWeight.w800)),
+                    ),
+                  ],
                 ),
               ),
             ),
           ),
-        ],
-      ),
+        ),
+      ]),
     );
   }
 
-  InputDecoration _fieldDecoration({
+  Widget _field({
+    required TextEditingController controller,
     required String label,
     required String hint,
     required IconData icon,
+    TextInputType? keyboard,
+    bool obscure = false,
     Widget? trailing,
+    String? Function(String?)? validator,
   }) {
-    return InputDecoration(
-      labelText: label,
-      hintText: hint,
-      prefixIcon: Icon(icon),
-      suffixIcon: trailing,
-      filled: true,
-      fillColor: AppColors.fieldFill,
-      contentPadding: const EdgeInsets.symmetric(vertical: 14, horizontal: 14),
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
-        borderSide: BorderSide.none,
+    return TextFormField(
+      controller: controller,
+      keyboardType: keyboard,
+      obscureText: obscure,
+      decoration: InputDecoration(
+        labelText: label,
+        hintText: hint,
+        prefixIcon: Icon(icon),
+        suffixIcon: trailing,
+        filled: true,
+        fillColor: AppColors.fieldFill,
+        contentPadding: const EdgeInsets.symmetric(vertical: 14, horizontal: 14),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: const BorderSide(color: AppColors.brandOrange, width: 1.2),
+        ),
       ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(color: AppColors.brandOrange, width: 1.2),
-      ),
+      validator: validator,
     );
   }
 }
 
-class _Blob extends StatelessWidget {
-  final double size;
-  final Color color;
-  const _Blob({required this.size, required this.color});
+class _SocialIconButton extends StatelessWidget {
+  final String asset;
+  final String semanticLabel;
+  final bool darkBg;
+  final VoidCallback? onPressed;
+
+  const _SocialIconButton({
+    required this.asset,
+    required this.semanticLabel,
+    this.darkBg = false,
+    this.onPressed,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: size,
-      height: size,
+    final button = Container(
+      width: 50, height: 50,
       decoration: BoxDecoration(
+        color: darkBg ? Colors.black : Colors.white,
         shape: BoxShape.circle,
-        gradient: RadialGradient(colors: [color, color.withOpacity(0.0)]),
+        border: Border.all(color: Colors.black.withOpacity(0.08)),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 8, offset: const Offset(0, 4))],
+      ),
+      alignment: Alignment.center,
+      child: Image.asset(
+        asset,
+        width: 22, height: 22,
+        color: null,
+        errorBuilder: (_, __, ___) => Icon(
+          darkBg ? Icons.apple : Icons.g_mobiledata,
+          size: 28,
+          color: darkBg ? Colors.white : Colors.black87,
+        ),
+      ),
+    );
+
+    return Semantics(
+      label: semanticLabel,
+      button: true,
+      child: InkWell(
+        onTap: onPressed,
+        borderRadius: BorderRadius.circular(50),
+        child: button,
       ),
     );
   }
