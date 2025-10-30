@@ -7,6 +7,8 @@ import 'package:vero360_app/services/auth_service.dart';
 import 'package:vero360_app/toasthelper.dart';
 import 'package:vero360_app/Pages/BottomNavbar.dart';
 import 'package:vero360_app/Pages/merchantbottomnavbar.dart';
+import 'package:vero360_app/widget/oauth_buttons.dart';
+
 
 class AppColors {
   static const brandOrange = Color(0xFFFF8A00);
@@ -192,12 +194,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
       );
       if (!mounted) return;
 
-      // Auto-route like the login screen:
       await _routeFromAuthResponse(resp);
     } finally { if (mounted) setState(() => _registering = false); }
   }
 
-  // ---------- Social on register (logo-only buttons) ----------
+  // ---------- Social (logo-only) ----------
   Future<void> _google() async {
     setState(() => _socialLoading = true);
     try {
@@ -244,25 +245,25 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
   }
 
-  Widget _socialRow() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        _SocialIconButton(
-          asset: 'assets/icons/google.png',
-          semanticLabel: 'Continue with Google',
-          onPressed: _socialLoading ? null : _google,
-        ),
-        if (Platform.isIOS) ...[
-          const SizedBox(width: 14),
-          _SocialIconButton(
-            asset: 'assets/icons/apple.png',
-            darkBg: true,
-            semanticLabel: 'Continue with Apple',
-            onPressed: _socialLoading ? null : _apple,
-          ),
-        ],
-      ],
+  InputDecoration _dec({
+    required String label,
+    required String hint,
+    required IconData icon,
+    Widget? trailing,
+  }) {
+    return InputDecoration(
+      labelText: label,
+      hintText: hint,
+      prefixIcon: Icon(icon),
+      suffixIcon: trailing,
+      filled: true,
+      fillColor: AppColors.fieldFill,
+      contentPadding: const EdgeInsets.symmetric(vertical: 14, horizontal: 14),
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: AppColors.brandOrange, width: 1.2),
+      ),
     );
   }
 
@@ -319,7 +320,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     const SizedBox(height: 10),
 
                     // Logo-only socials
-                    _socialRow(),
+                    OAuthButtonsRow(
+                      onGoogle: _socialLoading ? null : _google,
+                      onApple:  _socialLoading ? null : _apple,
+                    ),
                     const SizedBox(height: 18),
 
                     // Card + Form
@@ -352,30 +356,71 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             ),
                             const SizedBox(height: 16),
 
-                            _field(controller: _name, label: 'Your name', hint: 'Your full name', icon: Icons.person_outline, validator: _validateName),
+                            TextFormField(
+                              controller: _name,
+                              textInputAction: TextInputAction.next,
+                              decoration: _dec(
+                                label: 'Your name',
+                                hint: 'Your full name',
+                                icon: Icons.person_outline,
+                              ),
+                              validator: _validateName,
+                            ),
                             const SizedBox(height: 14),
-                            _field(controller: _email, label: 'Email', hint: 'you@vero.com', icon: Icons.alternate_email, keyboard: TextInputType.emailAddress, validator: _validateEmail),
+                            TextFormField(
+                              controller: _email,
+                              keyboardType: TextInputType.emailAddress,
+                              textInputAction: TextInputAction.next,
+                              decoration: _dec(
+                                label: 'Email',
+                                hint: 'you@vero.com',
+                                icon: Icons.alternate_email,
+                              ),
+                              validator: _validateEmail,
+                            ),
                             const SizedBox(height: 14),
-                            _field(controller: _phone, label: 'Mobile number', hint: '08xxxxxxxx, 09xxxxxxxx or +2659xxxxxxxx', icon: Icons.phone_iphone, keyboard: TextInputType.phone, validator: _validatePhone),
+                            TextFormField(
+                              controller: _phone,
+                              keyboardType: TextInputType.phone,
+                              textInputAction: TextInputAction.next,
+                              decoration: _dec(
+                                label: 'Mobile number',
+                                hint: '08xxxxxxxx, 09xxxxxxxx or +2659xxxxxxxx',
+                                icon: Icons.phone_iphone,
+                              ),
+                              validator: _validatePhone,
+                            ),
                             const SizedBox(height: 14),
-                            _field(
-                              controller: _password, label: 'Password', hint: '••••••••', icon: Icons.lock_outline,
-                              obscure: _obscure1,
-                              trailing: IconButton(
-                                tooltip: _obscure1 ? 'Show' : 'Hide',
-                                icon: Icon(_obscure1 ? Icons.visibility : Icons.visibility_off),
-                                onPressed: () => setState(() => _obscure1 = !_obscure1),
+                            TextFormField(
+                              controller: _password,
+                              obscureText: _obscure1,
+                              textInputAction: TextInputAction.next,
+                              decoration: _dec(
+                                label: 'Password',
+                                hint: '••••••••',
+                                icon: Icons.lock_outline,
+                                trailing: IconButton(
+                                  tooltip: _obscure1 ? 'Show' : 'Hide',
+                                  icon: Icon(_obscure1 ? Icons.visibility : Icons.visibility_off),
+                                  onPressed: () => setState(() => _obscure1 = !_obscure1),
+                                ),
                               ),
                               validator: _validatePassword,
                             ),
                             const SizedBox(height: 14),
-                            _field(
-                              controller: _confirm, label: 'Confirm password', hint: '••••••••', icon: Icons.lock_outline,
-                              obscure: _obscure2,
-                              trailing: IconButton(
-                                tooltip: _obscure2 ? 'Show' : 'Hide',
-                                icon: Icon(_obscure2 ? Icons.visibility : Icons.visibility_off),
-                                onPressed: () => setState(() => _obscure2 = !_obscure2),
+                            TextFormField(
+                              controller: _confirm,
+                              obscureText: _obscure2,
+                              textInputAction: TextInputAction.done,
+                              decoration: _dec(
+                                label: 'Confirm password',
+                                hint: '••••••••',
+                                icon: Icons.lock_outline,
+                                trailing: IconButton(
+                                  tooltip: _obscure2 ? 'Show' : 'Hide',
+                                  icon: Icon(_obscure2 ? Icons.visibility : Icons.visibility_off),
+                                  onPressed: () => setState(() => _obscure2 = !_obscure2),
+                                ),
                               ),
                               validator: _validateConfirm,
                             ),
@@ -384,7 +429,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             Row(
                               children: [
                                 Checkbox(value: _agree, onChanged: (v) => setState(() => _agree = v ?? false)),
-                                const Expanded(child: Text('I agree to the Terms & Privacy Policy', style: TextStyle(color: AppColors.body, fontWeight: FontWeight.w600))),
+                                const Expanded(
+                                  child: Text('I agree to the Terms & Privacy Policy',
+                                    style: TextStyle(color: AppColors.body, fontWeight: FontWeight.w600)),
+                                ),
                               ],
                             ),
 
@@ -413,12 +461,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
                             if (_otpSent) ...[
                               const SizedBox(height: 10),
-                              _field(
+                              TextFormField(
                                 controller: _code,
-                                label: 'Verification code',
-                                hint: 'Enter the code',
-                                icon: Icons.verified_outlined,
-                                keyboard: TextInputType.number,
+                                keyboardType: TextInputType.number,
+                                decoration: _dec(
+                                  label: 'Verification code',
+                                  hint: 'Enter the code',
+                                  icon: Icons.verified_outlined,
+                                ),
                               ),
                             ],
 
@@ -455,86 +505,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
           ),
         ),
       ]),
-    );
-  }
-
-  Widget _field({
-    required TextEditingController controller,
-    required String label,
-    required String hint,
-    required IconData icon,
-    TextInputType? keyboard,
-    bool obscure = false,
-    Widget? trailing,
-    String? Function(String?)? validator,
-  }) {
-    return TextFormField(
-      controller: controller,
-      keyboardType: keyboard,
-      obscureText: obscure,
-      decoration: InputDecoration(
-        labelText: label,
-        hintText: hint,
-        prefixIcon: Icon(icon),
-        suffixIcon: trailing,
-        filled: true,
-        fillColor: AppColors.fieldFill,
-        contentPadding: const EdgeInsets.symmetric(vertical: 14, horizontal: 14),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: const BorderSide(color: AppColors.brandOrange, width: 1.2),
-        ),
-      ),
-      validator: validator,
-    );
-  }
-}
-
-class _SocialIconButton extends StatelessWidget {
-  final String asset;
-  final String semanticLabel;
-  final bool darkBg;
-  final VoidCallback? onPressed;
-
-  const _SocialIconButton({
-    required this.asset,
-    required this.semanticLabel,
-    this.darkBg = false,
-    this.onPressed,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final button = Container(
-      width: 50, height: 50,
-      decoration: BoxDecoration(
-        color: darkBg ? Colors.black : Colors.white,
-        shape: BoxShape.circle,
-        border: Border.all(color: Colors.black.withOpacity(0.08)),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 8, offset: const Offset(0, 4))],
-      ),
-      alignment: Alignment.center,
-      child: Image.asset(
-        asset,
-        width: 22, height: 22,
-        color: null,
-        errorBuilder: (_, __, ___) => Icon(
-          darkBg ? Icons.apple : Icons.g_mobiledata,
-          size: 28,
-          color: darkBg ? Colors.white : Colors.black87,
-        ),
-      ),
-    );
-
-    return Semantics(
-      label: semanticLabel,
-      button: true,
-      child: InkWell(
-        onTap: onPressed,
-        borderRadius: BorderRadius.circular(50),
-        child: button,
-      ),
     );
   }
 }

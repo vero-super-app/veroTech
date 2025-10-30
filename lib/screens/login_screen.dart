@@ -7,6 +7,8 @@ import 'package:vero360_app/Pages/merchantbottomnavbar.dart';
 import 'package:vero360_app/screens/register_screen.dart';
 import 'package:vero360_app/services/auth_service.dart';
 import 'package:vero360_app/toasthelper.dart';
+import 'package:vero360_app/widget/oauth_buttons.dart';
+
 
 class AppColors {
   static const brandOrange = Color(0xFFFF8A00);
@@ -96,6 +98,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _apple() async {
+    // We allow the button to show everywhere, but only iOS actually runs the flow.
     if (!Platform.isIOS) return;
     setState(() => _socialLoading = true);
     try {
@@ -125,28 +128,6 @@ class _LoginScreenState extends State<LoginScreen> {
         borderRadius: BorderRadius.circular(14),
         borderSide: const BorderSide(color: AppColors.brandOrange, width: 1.2),
       ),
-    );
-  }
-
-  Widget _socialRow() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        _SocialIconButton(
-          asset: 'assets/icons/google.png',
-          semanticLabel: 'Continue with Google',
-          onPressed: _socialLoading ? null : _google,
-        ),
-        if (Platform.isIOS) ...[
-          const SizedBox(width: 14),
-          _SocialIconButton(
-            asset: 'assets/icons/apple.png',
-            darkBg: true,
-            semanticLabel: 'Continue with Apple',
-            onPressed: _socialLoading ? null : _apple,
-          ),
-        ],
-      ],
     );
   }
 
@@ -188,8 +169,11 @@ class _LoginScreenState extends State<LoginScreen> {
                       style: TextStyle(color: AppColors.title, fontSize: 26, fontWeight: FontWeight.w800)),
                     const SizedBox(height: 8),
 
-                    // Logo-only socials
-                    _socialRow(),
+                    // Logo-only socials (always visible)
+                    OAuthButtonsRow(
+                      onGoogle: _socialLoading ? null : _google,
+                      onApple:  _socialLoading ? null : _apple,
+                    ),
                     const SizedBox(height: 18),
 
                     // Form card
@@ -285,54 +269,6 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
         ),
       ]),
-    );
-  }
-}
-
-class _SocialIconButton extends StatelessWidget {
-  final String asset;
-  final String semanticLabel;
-  final bool darkBg;
-  final VoidCallback? onPressed;
-
-  const _SocialIconButton({
-    required this.asset,
-    required this.semanticLabel,
-    this.darkBg = false,
-    this.onPressed,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final button = Container(
-      width: 50, height: 50,
-      decoration: BoxDecoration(
-        color: darkBg ? Colors.black : Colors.white,
-        shape: BoxShape.circle,
-        border: Border.all(color: Colors.black.withOpacity(0.08)),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 8, offset: const Offset(0, 4))],
-      ),
-      alignment: Alignment.center,
-      child: Image.asset(
-        asset,
-        width: 22, height: 22,
-        color: null,
-        errorBuilder: (_, __, ___) => Icon(
-          darkBg ? Icons.apple : Icons.g_mobiledata,
-          size: 28,
-          color: darkBg ? Colors.white : Colors.black87,
-        ),
-      ),
-    );
-
-    return Semantics(
-      label: semanticLabel,
-      button: true,
-      child: InkWell(
-        onTap: onPressed,
-        borderRadius: BorderRadius.circular(50),
-        child: button,
-      ),
     );
   }
 }
