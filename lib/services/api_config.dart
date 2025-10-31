@@ -5,7 +5,7 @@ import 'package:http/http.dart' as http;
 
 class ApiConfig {
   /// 🔒 Single source of truth (NO trailing slash)
-  static const String prod =   'https://vero-backend-1.onrender.com/vero';     ///'http://10.0.2.2:3000';
+  static const String prod = 'https://vero-backend-1.onrender.com/vero'; // keep this
   static String get prodBase => prod;
 
   static const String _prefsKey = 'api_base';
@@ -32,18 +32,37 @@ class ApiConfig {
   /// It is a NO-OP that still forces PROD.
   static Future<void> setBase(String _ignored) => useProd();
 
-  /// Build URIs safely (no double slashes).
+  /// Build URIs safely (no double slashes) — this is your prefixed API builder.
   static Uri endpoint(String path) {
     final p = path.startsWith('/') ? path : '/$path';
-    return Uri.parse('$prod$p');
+    return Uri.parse('$prod$p'); // e.g. https://.../vero/auth/login
   }
 
-  /// Optional: quick reachability check for logs/debug UI.
+  /// NEW: Build root URIs that ignore the /vero prefix (for /healthz, etc.).
+  static Uri rootEndpoint(String path) {
+    final p = path.startsWith('/') ? path : '/$path';
+    final u = Uri.parse(prod);
+    final base = Uri(
+      scheme: u.scheme,
+      host: u.host,
+      port: u.hasPort ? u.port : 0,
+    ).toString().replaceAll(RegExp(r'/:?0$'), ''); // drop :0 if no port
+    return Uri.parse('$base$p'); // e.g. https://.../healthz
+  }
+
+  /// Quick reachability check: try unprefixed health first, then fallback.
   static Future<bool> prodReachable({Duration timeout = const Duration(milliseconds: 800)}) async {
-    for (final path in const ['/healthz', '/health', '/']) {
+    final probes = <Uri>[
+      rootEndpoint('/healthz'), // unprefixed — you excluded it in Nest
+      rootEndpoint('/health'),
+      rootEndpoint('/'),
+      // As a last resort, prove the prefixed path exists (will likely 404 on GET, but DNS/TLS works)
+      endpoint('/auth/login'),
+    ];
+    for (final u in probes) {
       try {
-        final res = await http.get(Uri.parse('$prod$path')).timeout(timeout);
-        if (res.statusCode >= 200 && res.statusCode < 500) return true;
+        final res = await http.get(u).timeout(timeout);
+        if (res.statusCode >= 200 && res.statusCode < 600) return true;
       } catch (_) {}
     }
     return false;

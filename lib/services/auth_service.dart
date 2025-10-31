@@ -1,41 +1,122 @@
+// lib/services/auth_service.dart
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
+
 import 'package:crypto/crypto.dart' show sha256;
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'package:google_sign_in/google_sign_in.dart';
-import 'package:sign_in_with_apple/sign_in_with_apple.dart';
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
 import 'package:vero360_app/services/api_config.dart';
 import 'package:vero360_app/toasthelper.dart';
 
 class AuthService {
   final _client = http.Client();
-  String get _base => ApiConfig.prod;
+
+  // ---- timeouts / backoff tuned for Render Free cold-start ----
+  static const Duration _perWakeTryTimeout = Duration(seconds: 6);
+  static const List<int> _wakeBackoffSecs = [0, 1, 2, 3, 5, 8, 13, 21]; // ~53s total
+  static const Duration _reqTimeoutWarm = Duration(seconds: 18);
+  static const Duration _reqTimeoutCold = Duration(seconds: 35);
 
   Map<String, String> _headers([String? token]) => {
         'Accept': 'application/json',
         'Content-Type': 'application/json',
-        if (token != null) 'Authorization': 'Bearer $token',
+        if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
       };
 
   void _toast(BuildContext ctx, String msg, {bool ok = true}) {
     ToastHelper.showCustomToast(ctx, msg, isSuccess: ok, errorMessage: ok ? '' : msg);
   }
 
-  // ---------------- Email/Phone + Password ----------------
+  // ---------- helpers: host & wake ----------
+  Uri _rootHost() {
+    final prefixed = Uri.parse(ApiConfig.prodBase); // e.g. https://.../vero
+    return Uri(
+      scheme: prefixed.scheme,
+      host: prefixed.host,
+      port: prefixed.hasPort ? prefixed.port : null,
+    );
+  }
+
+  Future<bool> _hasInternet() async {
+    try {
+      final res = await InternetAddress.lookup('one.one.one.one').timeout(const Duration(seconds: 2));
+      return res.isNotEmpty;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<bool> _pingOnce(Uri url) async {
+    try {
+      final r = await _client.get(url).timeout(_perWakeTryTimeout);
+      return r.statusCode >= 200 && r.statusCode < 500; // host is up
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Repeatedly ping /healthz (fallback /) with backoff to wake the dyno.
+  Future<bool> _wakeServerIfAsleep() async {
+    if (!await _hasInternet()) return false;
+
+    final root = _rootHost();
+    final healthz = root.replace(path: '/healthz');
+    final slash = root.replace(path: '/');
+
+    for (final delay in _wakeBackoffSecs) {
+      if (delay > 0) await Future<void>.delayed(Duration(seconds: delay));
+      // Race two quick pings
+      final ok = await Future.any<bool>([
+        _pingOnce(healthz),
+        _pingOnce(slash),
+      ]).catchError((_) => false);
+      if (ok == true) return true;
+    }
+    return false;
+  }
+
+  /// POST JSON with cold-start awareness: wake, try warm timeout, then retry with cold timeout.
+  Future<http.Response> _postJson(String path, Map<String, dynamic> body, {String? token}) async {
+    // Best-effort wake before real call
+    await _wakeServerIfAsleep();
+
+    final url = ApiConfig.endpoint(path);
+    try {
+      return await _client
+          .post(url, headers: _headers(token), body: jsonEncode(body))
+          .timeout(_reqTimeoutWarm);
+    } on TimeoutException catch (_) {
+      // Try one more wake + longer call
+      await _wakeServerIfAsleep();
+      return await _client
+          .post(url, headers: _headers(token), body: jsonEncode(body))
+          .timeout(_reqTimeoutCold);
+    } on SocketException catch (_) {
+      // DNS/handshake hiccup: wake then retry once longer
+      await _wakeServerIfAsleep();
+      return await _client
+          .post(url, headers: _headers(token), body: jsonEncode(body))
+          .timeout(_reqTimeoutCold);
+    }
+  }
+
+  // ---------- Email/Phone + Password ----------
   Future<Map<String, dynamic>?> loginWithIdentifier(
     String identifier,
     String password,
     BuildContext context,
   ) async {
     try {
-      final url = Uri.parse('$_base/auth/login');
-      final res = await _client.post(url,
-          headers: _headers(),
-          body: jsonEncode({'identifier': identifier, 'password': password}));
+      final res = await _postJson('/auth/login', {
+        'identifier': identifier,
+        'password': password,
+      });
 
       if (res.statusCode >= 200 && res.statusCode < 300) {
         final data = jsonDecode(res.body) as Map<String, dynamic>;
@@ -45,13 +126,19 @@ class AuthService {
       final err = _extractError(res);
       _toast(context, err, ok: false);
       return null;
+    } on TimeoutException {
+      _toast(context, 'Network timeout. The server may be cold-starting — try again.', ok: false);
+      return null;
+    } on SocketException catch (e) {
+      _toast(context, 'Network error: ${e.osError?.message ?? e.message}', ok: false);
+      return null;
     } catch (e) {
       _toast(context, 'Network error: $e', ok: false);
       return null;
     }
   }
 
-  // ---------------- OTP (register flow) ----------------
+  // ---------- OTP (register flow) ----------
   Future<bool> requestOtp({
     required String channel, // 'email' | 'phone'
     String? email,
@@ -59,13 +146,11 @@ class AuthService {
     required BuildContext context,
   }) async {
     try {
-      final url = Uri.parse('$_base/auth/otp/request');
-      final payload = {
+      final res = await _postJson('/auth/otp/request', {
         'channel': channel,
         if (email != null) 'email': email,
         if (phone != null) 'phone': phone,
-      };
-      final res = await _client.post(url, headers: _headers(), body: jsonEncode(payload));
+      });
 
       if (res.statusCode >= 200 && res.statusCode < 300) {
         _toast(context, 'Verification code sent');
@@ -74,6 +159,9 @@ class AuthService {
       final err = _extractError(res);
       _toast(context, err, ok: false);
       return false;
+    } on TimeoutException {
+      _toast(context, 'Network timeout. Please retry — server might be waking.', ok: false);
+      return false;
     } catch (e) {
       _toast(context, 'Network error: $e', ok: false);
       return false;
@@ -81,20 +169,19 @@ class AuthService {
   }
 
   Future<String?> verifyOtpGetTicket({
-    required String identifier, // email or phone
+    required String identifier,
     required String code,
     required BuildContext context,
   }) async {
     try {
       final channel = identifier.contains('@') ? 'email' : 'phone';
-      final url = Uri.parse('$_base/auth/otp/verify');
-      final body = {
+      final res = await _postJson('/auth/otp/verify', {
         'channel': channel,
         if (channel == 'email') 'email': identifier,
         if (channel == 'phone') 'phone': identifier,
         'code': code,
-      };
-      final res = await _client.post(url, headers: _headers(), body: jsonEncode(body));
+      });
+
       if (res.statusCode >= 200 && res.statusCode < 300) {
         final data = jsonDecode(res.body) as Map<String, dynamic>;
         final ticket = data['ticket']?.toString();
@@ -108,6 +195,9 @@ class AuthService {
       final err = _extractError(res);
       _toast(context, err, ok: false);
       return null;
+    } on TimeoutException {
+      _toast(context, 'Network timeout. Please retry — server might be waking.', ok: false);
+      return null;
     } catch (e) {
       _toast(context, 'Network error: $e', ok: false);
       return null;
@@ -119,15 +209,14 @@ class AuthService {
     required String email,
     required String phone,
     required String password,
-    required String role, // 'customer' | 'merchant'
+    required String role,
     required String profilePicture,
-    required String preferredVerification, // 'email' | 'phone'
+    required String preferredVerification,
     required String verificationTicket,
     required BuildContext context,
   }) async {
     try {
-      final url = Uri.parse('$_base/auth/register');
-      final res = await _client.post(url, headers: _headers(), body: jsonEncode({
+      final res = await _postJson('/auth/register', {
         'name': name,
         'email': email,
         'phone': phone,
@@ -136,7 +225,7 @@ class AuthService {
         'profilepicture': profilePicture,
         'preferredVerification': preferredVerification,
         'verificationTicket': verificationTicket,
-      }));
+      });
 
       if (res.statusCode >= 200 && res.statusCode < 300) {
         final data = jsonDecode(res.body) as Map<String, dynamic>;
@@ -146,13 +235,16 @@ class AuthService {
       final err = _extractError(res);
       _toast(context, err, ok: false);
       return null;
+    } on TimeoutException {
+      _toast(context, 'Network timeout. Please retry — server might be waking.', ok: false);
+      return null;
     } catch (e) {
       _toast(context, 'Network error: $e', ok: false);
       return null;
     }
   }
 
-
+  // ---------- Logout ----------
   Future<bool> logout({BuildContext? context}) async {
     String? token;
     try {
@@ -160,36 +252,22 @@ class AuthService {
       token = sp.getString('token') ?? sp.getString('jwt_token') ?? sp.getString('jwt');
     } catch (_) {}
 
-    // 1) Best-effort server revoke (if you add this route server-side)
     if (token != null && token.isNotEmpty) {
-      try {
-        final url = Uri.parse('$_base/auth/logout');
-        // If the route doesn’t exist, this will 404 — we ignore errors.
-        await _client.post(url, headers: _headers(token));
-      } catch (_) {/* ignore */}
+      try { await _postJson('/auth/logout', {}, token: token); } catch (_) {}
     }
 
-    // 2) Google sign-out (safe to run even if user didn’t use Google)
     try { await _google.signOut(); } catch (_) {}
     try { await _google.disconnect(); } catch (_) {}
 
-    // 3) (Apple) Nothing specific to do client-side; clearing local session is enough.
-
-    // 4) Local cleanup
     final ok = await _clearLocalSession();
-
-    if (context != null) {
-      _toast(context, ok ? 'Signed out' : 'Signed out (local cleanup error)', ok: ok);
-    }
+    if (context != null) _toast(context, ok ? 'Signed out' : 'Signed out (local cleanup error)', ok: ok);
     return ok;
   }
 
-  /// Clears tokens and session-related preferences.
   Future<bool> _clearLocalSession() async {
     try {
       final sp = await SharedPreferences.getInstance();
-      // Common token keys and any auth-related prefs you use
-      const keys = <String>[
+      for (final k in const [
         'token',
         'jwt_token',
         'jwt',
@@ -197,8 +275,7 @@ class AuthService {
         'prefill_login_identifier',
         'prefill_login_role',
         'merchant_review_pending',
-      ];
-      for (final k in keys) {
+      ]) {
         await sp.remove(k);
       }
       return true;
@@ -207,8 +284,7 @@ class AuthService {
     }
   }
 
-
-  // ---------------- Social: Google ----------------
+  // ---------- Social: Google ----------
   final GoogleSignIn _google = GoogleSignIn(scopes: ['email', 'profile']);
 
   Future<Map<String, dynamic>?> continueWithGoogle(BuildContext context) async {
@@ -221,11 +297,9 @@ class AuthService {
         _toast(context, 'No Google ID token', ok: false);
         return null;
       }
-      final res = await _client.post(
-        Uri.parse('$_base/auth/google'),
-        headers: _headers(),
-        body: jsonEncode({'idToken': idToken}),
-      );
+
+      final res = await _postJson('/auth/google', {'idToken': idToken});
+
       if (res.statusCode >= 200 && res.statusCode < 300) {
         final data = jsonDecode(res.body) as Map<String, dynamic>;
         _toast(context, 'Signed in with Google');
@@ -234,13 +308,16 @@ class AuthService {
       final err = _extractError(res);
       _toast(context, err, ok: false);
       return null;
+    } on TimeoutException {
+      _toast(context, 'Network timeout. Please retry — server might be waking.', ok: false);
+      return null;
     } catch (e) {
       _toast(context, 'Google sign-in failed: $e', ok: false);
       return null;
     }
   }
 
-  // ---------------- Social: Apple ----------------
+  // ---------- Social: Apple ----------
   Future<Map<String, dynamic>?> continueWithApple(BuildContext context) async {
     try {
       if (!Platform.isIOS) {
@@ -266,15 +343,11 @@ class AuthService {
         credential.familyName ?? '',
       ].where((s) => s.trim().isNotEmpty).join(' ').trim();
 
-      final res = await _client.post(
-        Uri.parse('$_base/auth/apple'),
-        headers: _headers(),
-        body: jsonEncode({
-          'identityToken': identityToken,
-          'rawNonce': rawNonce,
-          if (fullName.isNotEmpty) 'fullName': fullName,
-        }),
-      );
+      final res = await _postJson('/auth/apple', {
+        'identityToken': identityToken,
+        'rawNonce': rawNonce,
+        if (fullName.isNotEmpty) 'fullName': fullName,
+      });
 
       if (res.statusCode >= 200 && res.statusCode < 300) {
         final data = jsonDecode(res.body) as Map<String, dynamic>;
@@ -284,19 +357,21 @@ class AuthService {
       final err = _extractError(res);
       _toast(context, err, ok: false);
       return null;
+    } on TimeoutException {
+      _toast(context, 'Network timeout. Please retry — server might be waking.', ok: false);
+      return null;
     } catch (e) {
       _toast(context, 'Apple sign-in failed: $e', ok: false);
       return null;
     }
   }
 
-  // ---------------- Helpers ----------------
+  // ---------- misc ----------
   Map<String, dynamic> _normalizeAuthResponse(Map<String, dynamic> data) {
-    // normalize common shapes: { user, access_token } | { user, token } | { jwt }
     final token = data['access_token'] ?? data['token'] ?? data['jwt'];
     return {
       'token': token?.toString(),
-      'user': data['user'] ?? data, // fallback if API returns whole user
+      'user': data['user'] ?? data,
     };
   }
 
@@ -324,10 +399,6 @@ class AuthService {
     return digest.toString();
   }
 
-  // Utility to persist token centrally (if you want service to save it)
-  static Future<void> saveTokenLocally(String token) async {
-    final sp = await SharedPreferences.getInstance();
-    await sp.setString('token', token);
-    await sp.setString('jwt_token', token);
-  }
+  /// Optional: call once at app start to pre-warm the backend.
+  static Future<void> prewarm() => AuthService()._wakeServerIfAsleep();
 }
